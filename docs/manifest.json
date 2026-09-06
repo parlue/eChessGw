@@ -1,6 +1,6 @@
 {
-  "name": "BluetoothMax",
-  "version": "v6.8 (fix: ChessLink status-frame orientation, connection health-check watchdog)",
+  "name": "eChessGw",
+  "version": "v6.9 (rebrand: eChessGw; removed unjustified BLE MTU request)",
   "new_install_prompt_erase": true,
   "builds": [
     {
@@ -19,7 +19,7 @@
           "offset": 57344
         },
         {
-          "path": "BluetoothMax-firmware.bin",
+          "path": "eChessGw-firmware.bin",
           "offset": 65536
         }
       ]

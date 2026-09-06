@@ -792,13 +792,13 @@ void setup() {
   digitalWrite(kStatusLedPin, HIGH);
   xTaskCreate(statusLedTask, "status-led", 1536, nullptr, 1, nullptr);
 
-  Serial.println("\r\nBluetoothMax multi-board gateway");
+  Serial.println("\r\neChessGw multi-board gateway");
   Serial.printf("Cable: %lu baud, explicit odd parity over 8N1, RX=GPIO%d, TX=GPIO%d\r\n",
                 static_cast<unsigned long>(MILLENNIUM_BAUD), kMillenniumRxPin, kMillenniumTxPin);
   Serial.println("WARNING: cable GPIOs only through the 3.3 V MAX3232 TTL side.");
   Serial.println("BLE: connection watchdog only; protocol idle until King starts it.");
 
-  NimBLEDevice::init("BluetoothMax");
+  NimBLEDevice::init("eChessGw");
 
   // Create both BT-BT masquerade servers' GATT structure (service/
   // characteristics) now, at boot, before the BLE client role ever starts

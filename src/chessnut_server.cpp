@@ -642,7 +642,12 @@ void chessnutServerInit() {
   if (initialized) return;
   rxQueue = xQueueCreate(16, sizeof(RawPacket));
 
-  NimBLEDevice::setMTU(128);
+  // No explicit setMTU() call -- see chesslink_server.cpp's own Init() for
+  // why (an unjustified copy-paste of CynusLink's own ChessLink-specific
+  // value, never used by cer2nut, the real Chessnut reference). Removed
+  // 2026-09-05. This is a NimBLEDevice-global setting shared by both
+  // masquerade services, so it needed removing from both to actually take
+  // effect, not just from the one being debugged.
   server = NimBLEDevice::createServer();  // singleton -- same server instance chesslink_server.cpp uses
 
   NimBLEService* boardService = server->createService(kServiceBoardUuid);
@@ -703,8 +708,8 @@ void chessnutServerStart() {
 
   // The advertised local name (set below) is a separate thing from the
   // standard GAP service's Device Name characteristic (0x2A00), which
-  // NimBLEDevice::init("BluetoothMax") set once at boot and would otherwise
-  // stay "BluetoothMax" for the rest of this connection. A client that reads
+  // NimBLEDevice::init("eChessGw") set once at boot and would otherwise
+  // stay "eChessGw" for the rest of this connection. A client that reads
   // that characteristic to confirm the board type it just connected to
   // would see the wrong name -- cer2nut's own real Chessnut-peripheral code
   // sets this explicitly for the same reason (`ble_svc_gap_device_name_set`

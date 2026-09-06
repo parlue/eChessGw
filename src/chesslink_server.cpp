@@ -319,7 +319,10 @@ void chesslinkServerInit() {
   resetRegisters();
   rxQueue = xQueueCreate(32, sizeof(RawPacket));
 
-  NimBLEDevice::setMTU(128);
+  // No explicit setMTU() call -- an unjustified copy-paste of CynusLink's
+  // own value (128), never verified for this Chessnut-side masquerade;
+  // cer2nut (the actual Chessnut reference) never requests an MTU at all.
+  // Removed 2026-09-05.
 
   server = NimBLEDevice::createServer();
   NimBLEService* service = server->createService(kServiceUuid);

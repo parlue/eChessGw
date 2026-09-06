@@ -1034,7 +1034,7 @@ void saveGameToLittleFs(const char* movesText, const char* result) {
     Serial.printf("[PGN] failed to open %s for writing\r\n", path);
     return;
   }
-  f.print("[Event \"BluetoothMax\"]\r\n[Site \"?\"]\r\n[Date \"????.??.??\"]\r\n"
+  f.print("[Event \"eChessGw\"]\r\n[Site \"?\"]\r\n[Date \"????.??.??\"]\r\n"
           "[Round \"?\"]\r\n[White \"?\"]\r\n[Black \"?\"]\r\n");
   f.printf("[Result \"%s\"]\r\n\r\n", result);
   f.print(movesText);

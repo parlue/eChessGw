@@ -1,5 +1,5 @@
 """
-BluetoothMax USB PGN client.
+eChessGw USB PGN client.
 
 Second, independent retrieval path for recorded games (see
 include/usb_pgn_dump.h in the firmware) -- built because the BLE-based
@@ -49,7 +49,7 @@ import serial.tools.list_ports
 
 BAUD_RATE = 115200
 PORT_PROBE_TIMEOUT_S = 2.0
-PORT_PROBE_SIGNATURES = (b"BluetoothMax", b"Gateway: BLE=", b"[PGN]", b"[CHESSNUT]")
+PORT_PROBE_SIGNATURES = (b"eChessGw", b"Gateway: BLE=", b"[PGN]", b"[CHESSNUT]")
 RECONNECT_DELAY_S = 3.0
 
 FILE_BEGIN_RE = re.compile(rb"###PGN_FILE_BEGIN index=(\d+) bytes=(\d+)###")
@@ -299,7 +299,7 @@ def wait_for_one_dump(port, directory):
 
 def main():
     setup_logging()
-    logging.info("BluetoothMax PGN Tool by Dirk D. Sommerfeld")
+    logging.info("eChessGw PGN Tool by Dirk D. Sommerfeld")
     directory = script_dir()
     logging.info("saving games into: %s", directory)
     while True:

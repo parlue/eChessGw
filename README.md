@@ -1,9 +1,9 @@
-# BluetoothMax
+# eChessGw
 
-BluetoothMax is an independent source-available Bluetooth LE gateway for chess
+eChessGw is an independent source-available BLE gateway for chess
 computer modules that speak the ChessLink (Mode B) protocol over a cable. It
-replaces the cable between the chess computer module and a Bluetooth-enabled
-e-board with a Bluetooth LE connection -- and, unlike a single-board bridge,
+replaces the cable between the chess computer module and a BLE-enabled
+e-board with a BLE connection -- and, unlike a single-board bridge,
 it scans for and connects to **whichever supported e-board is present** at
 runtime, translating each board's own native protocol to and from Mode B on
 the fly. One firmware image, multiple board brands.
@@ -21,17 +21,17 @@ Generic chess computer module with DIN connector
        HW-027 with MAX3232
               ⇅ UART / 3.3 V
         ESP32-C3 SuperMini
-              ⇅ Bluetooth LE
+              ⇅ BLE
 MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot
 ```
 
 <p>
-  <img src="images/module-usb-c.jpg" alt="BluetoothMax module, USB-C side" width="300">
-  <img src="images/module-minidin.jpg" alt="BluetoothMax module, Mini-DIN cable side" width="300">
+  <img src="images/module-usb-c.jpg" alt="eChessGw module, USB-C side" width="300">
+  <img src="images/module-minidin.jpg" alt="eChessGw module, Mini-DIN cable side" width="300">
 </p>
 
-**Full user manual (PDF):** [English](BluetoothMax-Manual-EN.pdf) &middot;
-[Deutsch](BluetoothMax-Handbuch-DE.pdf)
+**Full user manual (PDF):** [English](eChessGw-Manual-EN.pdf) &middot;
+[Deutsch](eChessGw-Handbuch-DE.pdf)
 
 ## Supported e-boards
 
@@ -268,7 +268,7 @@ confirmed working, so use whichever is more convenient.
 Flash the gateway firmware directly from a supported browser (Chrome or
 Edge), no toolchain install required:
 
-**[https://parlue.github.io/BluetoothMax/](https://parlue.github.io/BluetoothMax/)**
+**[https://parlue.github.io/eChessGw/](https://parlue.github.io/eChessGw/)**
 
 Connect an ESP32-C3 SuperMini (or compatible board) via USB and follow the
 on-page instructions. See [`docs/`](docs) for how the installer is built and
@@ -308,7 +308,9 @@ client compatibility list.
 | v6.4 | ManyaCynus: on firmware 1.4.2+, the gateway now auto-detects the version and disables Cynus's own onboard illegal-move checking, which previously could interfere with an external chess computer driving the game |
 | v6.5 | Fix: the standalone-mode masquerade gesture (second white queen on a4/b4) never worked on ManyaCynus -- the gateway's own single-legal-move check rejected the extra queen before the masquerade selection logic ever saw it; confirmation signal text changed to "ChessL"/"Chnut", shown for 3s (was "CSLMode"/"NutMode", 2s) |
 | v6.6 | Fix: a connected Chessnut app's move commands were silently ignored on ManyaCynus during live play (Chess Dojo confirmed affected) -- now decoded and sent to the robot arm |
-| v6.7 (current) | Fix: the same Chessnut highlight command is also used by a connected app to echo a move it just saw the human make by hand -- confirmed on real hardware to make ManyaCynus's robot arm re-grab and disturb a piece the human had already placed correctly (a king, right after a hand-played castling). Now recognized and ignored (it's textually identical to the human move the gateway itself just detected) instead of re-executed, so the robot only ever moves for the computer's own side; also inactive while Free Analysis or Set Position is active. Separately: two BLE masquerade services (ChessLink and Chessnut) were both always connectable regardless of which one was actually selected, which could route a client to the wrong one and explain total silence -- the non-selected one now rejects connections outright instead |
+| v6.7 | Fix: the same Chessnut highlight command is also used by a connected app to echo a move it just saw the human make by hand -- confirmed on real hardware to make ManyaCynus's robot arm re-grab and disturb a piece the human had already placed correctly (a king, right after a hand-played castling). Now recognized and ignored (it's textually identical to the human move the gateway itself just detected) instead of re-executed, so the robot only ever moves for the computer's own side; also inactive while Free Analysis or Set Position is active. Separately: two BLE masquerade services (ChessLink and Chessnut) were both always connectable regardless of which one was actually selected, which could route a client to the wrong one and explain total silence -- the non-selected one now rejects connections outright instead |
+| v6.8 | Fix: in standalone BLE ChessLink masquerade mode, the board-status frame sent to a connected app (e.g. BearChess) was relayed in the cable module's own wire orientation (rotated 180 degrees) instead of plain board order, so the app never received a correct position; also adds a 1s connection health-check watchdog that restarts advertising if it goes stale |
+| v6.9 (current) | Renamed the project to eChessGw (was BluetoothMax) and switched all documentation/UI text from "Bluetooth" to "BLE" to avoid any Bluetooth SIG trademark conflict -- no functional change to the protocol or hardware support. Also removed an unjustified BLE MTU request (128, never actually required by any supported client) |
 
 ## Components
 
@@ -438,7 +440,7 @@ holder.
 
 ## Trademark, copyright and protocol notice
 
-BluetoothMax is an independent, unofficial interoperability project. It is not
+eChessGw is an independent, unofficial interoperability project. It is not
 affiliated with, endorsed by or sponsored by MILLENNIUM 2000 GmbH, Phoenix
 Chess Systems, or any other vendor named in this document.
 
@@ -449,3 +451,9 @@ product of Phoenix Chess Systems (Netherlands, phoenixcs.nl), developed in
 cooperation with MILLENNIUM 2000. This project does not claim ownership of
 any of these protocols and does not distribute original firmware, software
 or other copyrighted material from any vendor.
+
+The *Bluetooth®* word mark and logos are registered trademarks owned by
+Bluetooth SIG, Inc., and any use of such marks by this project is under
+license. This project uses "BLE" (Bluetooth Low Energy) descriptively to
+refer to the underlying radio technology only, and is not affiliated with,
+endorsed by or sponsored by Bluetooth SIG, Inc.
