@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "chessnut_board.h"
+#include "chesslink_server.h"
 #include "cynus_board.h"
 #include "ichessone_board.h"
 #include "millennium_board.h"
@@ -77,6 +78,17 @@ bool realTimeMode = false;
 // before the other.
 bool boardNotifyEnabled = false;
 bool mainNotifyEnabled = false;
+
+// True once a write arrives via chesslink_server.cpp's own bridge (see its
+// RxCallbacks::onWrite -- confirmed real-hardware case 2026-09-08: BC ends
+// up writing/subscribing on ChessLink's characteristics instead of this
+// module's own, since both services are simultaneously present in the GATT
+// table and which one a client's discovery resolves first isn't fully
+// deterministic). While true, every reply/board-frame push for this session
+// routes out via chesslinkServerWriteRawFrame() instead of this module's own
+// characteristics, since that's the notify channel the client actually
+// subscribed to. Reset on disconnect.
+bool bridgedViaChessLink = false;
 
 uint8_t cachedStatus[kModeBStatusFrameLength] = {};
 bool haveCachedStatus = false;
@@ -194,7 +206,10 @@ void sendBoardFrame() {
             "[CHESSNUT] board changed but client has not entered real-time mode -- not sent");
     return;
   }
-  if (!boardNotifyEnabled) {
+  // See bridgedViaChessLink's own comment -- a bridged client is actually
+  // subscribed to ChessLink's TX characteristic, not this module's own.
+  const bool subscribed = bridgedViaChessLink ? chesslinkServerNotifyEnabled() : boardNotifyEnabled;
+  if (!subscribed) {
     logOnce(Reason::NotSubscribed,
             "[CHESSNUT] board changed but client has not subscribed to notifications yet -- not sent");
     return;
@@ -202,7 +217,11 @@ void sendBoardFrame() {
   lastLoggedReason = Reason::Ok;
   uint8_t frame[38];
   buildBoardFrame(cachedStatus, frame);  // value already set above; rebuilt here only to track what was sent
-  boardReadChar->notify();
+  if (bridgedViaChessLink) {
+    chesslinkServerWriteRawFrame(frame, sizeof(frame));
+  } else {
+    boardReadChar->notify();
+  }
   memcpy(lastSentBoardFrame, frame, sizeof(frame));
   haveSentBoardFrame = true;
   Serial.println("[CHESSNUT] board frame notified to client");
@@ -317,7 +336,18 @@ void sendSavedGamesFileTransfer() {
 }
 
 void sendMainReply(const uint8_t* data, size_t length) {
-  if (mainReadChar == nullptr || !connected) return;
+  if (!connected) return;
+  if (bridgedViaChessLink) {
+    // See bridgedViaChessLink's own comment -- the client is actually
+    // subscribed to ChessLink's TX characteristic, not this module's own.
+    if (!chesslinkServerNotifyEnabled()) {
+      Serial.println("[CHESSNUT] reply ready but bridged client has not subscribed yet -- not sent");
+      return;
+    }
+    chesslinkServerWriteRawFrame(data, length);
+    return;
+  }
+  if (mainReadChar == nullptr) return;
   if (!mainNotifyEnabled) {
     Serial.println("[CHESSNUT] reply ready but client has not subscribed to main-read notifications yet -- not sent");
     return;
@@ -521,6 +551,7 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
     haveSentBoardFrame = false;
     boardNotifyEnabled = false;
     mainNotifyEnabled = false;
+    bridgedViaChessLink = false;  // determined per-write, see chessnutServerHandleExternalWrite()
     Serial.printf("[CHESSNUT] client connected %s\r\n", info.getAddress().toString().c_str());
     // Deliberately NOT calling server->updateConnParams() here, unlike
     // chesslink_server.cpp -- that call is justified there by CynusLink's
@@ -540,6 +571,14 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
     boardNotifyEnabled = false;
     mainNotifyEnabled = false;
     connHandle = BLE_HS_CONN_HANDLE_NONE;
+    if (bridgedViaChessLink) {
+      // chesslink_server.cpp's own onDisconnect/health-check never run while
+      // its masquerade isn't the selected one -- see its own
+      // chesslinkServerResetBridgeState() comment for why this explicit call
+      // is needed instead.
+      chesslinkServerResetBridgeState();
+      bridgedViaChessLink = false;
+    }
     NimBLEDevice::startAdvertising();
   }
 
@@ -578,7 +617,22 @@ class MainWriteCallbacks final : public NimBLECharacteristicCallbacks {
     // Per-characteristic callbacks are bound unconditionally in Init(), so
     // this can fire even when ChessLink (not Chessnut) was actually
     // selected -- see ServerCallbacks::onConnect's own comment.
-    if (!started) return;
+    if (!started) {
+      // Mirror image of chesslink_server.cpp's own bridge (see its
+      // RxCallbacks::onWrite): a real ChessLink client's first byte is
+      // always one of S/X/T/V/R/W/L (modeBCommandLength() > 0) -- if that's
+      // what landed here (this module's write characteristic) while
+      // Chessnut mode wasn't the one selected, it's really a ChessLink
+      // client that discovered the wrong service. Forward it instead of
+      // silently dropping it. chesslinkServerHandleExternalWrite() itself
+      // no-ops if ChessLink mode isn't the one actually selected either.
+      const std::string rawValue = characteristic->getValue();
+      if (!rawValue.empty() && modeBCommandLength(static_cast<uint8_t>(rawValue[0]) & 0x7f) > 0) {
+        chesslinkServerHandleExternalWrite(
+            reinterpret_cast<const uint8_t*>(rawValue.data()), rawValue.size());
+      }
+      return;
+    }
     if (rxQueue == nullptr) return;
     const std::string value = characteristic->getValue();
     size_t offset = 0;
@@ -623,9 +677,18 @@ class MainReadCallbacks final : public NimBLECharacteristicCallbacks {
  public:
   void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo&, uint16_t subValue) override {
     // See MainWriteCallbacks::onWrite's own comment -- this can fire for a
-    // non-selected mode too.
-    if (!started) return;
+    // non-selected mode too. Still track mainNotifyEnabled even then (see
+    // chessnutServerNotifyEnabled()) -- a ChessLink client that ends up here
+    // by mistake (see chesslink_server.cpp's own bridge, symmetric to this
+    // module's chessnutServerHandleExternalWrite()) still needs its
+    // subscribe state tracked so that bridge knows it's safe to reply.
     mainNotifyEnabled = subValue != 0;
+    if (!started) {
+      Serial.printf("[CHESSNUT] client %s notifications on main-read characteristic (Chessnut "
+                    "masquerade not selected -- tracked only for the ChessLink bridge)\r\n",
+                    mainNotifyEnabled ? "enabled" : "disabled");
+      return;
+    }
     Serial.printf("[CHESSNUT] client %s notifications on main-read characteristic\r\n",
                   mainNotifyEnabled ? "enabled" : "disabled");
   }
@@ -791,4 +854,42 @@ void chessnutServerPublishStatus(const uint8_t frame[kModeBStatusFrameLength]) {
   memcpy(cachedStatus, frame, kModeBStatusFrameLength);
   haveCachedStatus = true;
   sendBoardFrame();  // logs its own reason if it can't actually send yet
+}
+
+bool chessnutServerNotifyEnabled() { return mainNotifyEnabled; }
+
+size_t chessnutServerWriteRawFrame(const uint8_t* rawFrame, size_t length) {
+  if (mainReadChar == nullptr || !mainNotifyEnabled) return 0;
+  mainReadChar->setValue(rawFrame, length);
+  return mainReadChar->notify() ? length : 0;
+}
+
+void chessnutServerResetBridgeState() {
+  // Called from chesslink_server.cpp's own onDisconnect when it was the one
+  // that actually owned the connection (ChessLink mode selected) -- this
+  // module's own onDisconnect never runs in that case (chessnut isn't the
+  // server-level callback owner), so nothing else would ever clear
+  // mainNotifyEnabled back to false otherwise.
+  mainNotifyEnabled = false;
+}
+
+void chessnutServerHandleExternalWrite(const uint8_t* data, size_t length) {
+  if (!started) return;  // Chessnut mode isn't the one actually selected either
+  if (rxQueue == nullptr || length == 0) return;
+  // A write arriving here means the connected client is a Chessnut one that
+  // ended up on ChessLink's characteristics instead of this module's own
+  // (see bridgedViaChessLink's own comment) -- the shared NimBLEServer-level
+  // ServerCallbacks::onConnect() for THIS module already ran (it owns the
+  // callback slot whenever Chessnut mode is selected, confirmed by
+  // "[CHESSNUT] client connected" already having logged), so `connected` is
+  // already true; only the bridge flag and reply routing need setting here.
+  bridgedViaChessLink = true;
+  size_t offset = 0;
+  while (offset < length) {
+    RawPacket packet{};
+    packet.length = static_cast<uint8_t>(std::min(length - offset, kMaxNotifyChunk));
+    memcpy(packet.data, data + offset, packet.length);
+    xQueueSend(rxQueue, &packet, 0);
+    offset += packet.length;
+  }
 }

@@ -36,3 +36,19 @@ void chessnutServerPoll();
 // forwarded to a connected Chessnut client. Safe to call even before
 // chessnutServerStart().
 void chessnutServerPublishStatus(const uint8_t frame[kModeBStatusFrameLength]);
+
+// Feeds a raw byte sequence that arrived on a DIFFERENT BLE characteristic
+// (chesslink_server.cpp's own RX, when that client's write doesn't parse as
+// a Mode-B command) into Chessnut's own command dispatch, as if it had
+// arrived on mainWriteChar directly.
+void chessnutServerHandleExternalWrite(const uint8_t* data, size_t length);
+
+// Mirror image of chesslinkServerNotifyEnabled()/WriteRawFrame()/
+// ResetBridgeState() -- lets chesslink_server.cpp's own bridge reply to a
+// ChessLink client that ended up writing/subscribing on THIS module's
+// characteristics instead of its own (same class of bug, opposite
+// direction: a real BLE client discovers both services since both are
+// always simultaneously present in the GATT table, and can land on either).
+bool chessnutServerNotifyEnabled();
+size_t chessnutServerWriteRawFrame(const uint8_t* rawFrame, size_t length);
+void chessnutServerResetBridgeState();

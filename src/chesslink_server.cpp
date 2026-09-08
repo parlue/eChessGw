@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cstring>
 
+#include "chessnut_server.h"
+#include "chesslink_status_refresh.h"
+
 // Ported from CynusLink's own proven ChessLink-server role (real UUIDs,
 // checksum/register handling, connection tuning) -- see chesslink_server.h.
 
@@ -23,6 +26,16 @@ bool connected = false;
 bool notifyEnabled = false;
 uint16_t connHandle = BLE_HS_CONN_HANDLE_NONE;
 
+// True once a write arrives via chessnut_server.cpp's own bridge (its
+// MainWriteCallbacks::onWrite) -- a real ChessLink client (BC/Chess Dojo)
+// discovered/landed on Chessnut's characteristics instead of this module's
+// own, since both services are always simultaneously present in the GATT
+// table (unavoidable -- see chesslinkServerInit()'s own comment) and a
+// multi-protocol client can probe/land on either. While true, every reply
+// for this session routes out via chessnutServerWriteRawFrame() instead of
+// this module's own TX characteristic. Reset on disconnect.
+bool bridgedViaChessnut = false;
+
 // Small EEPROM-style register set a real Mode-B board exposes via 'R'/'W'.
 // Defaults match CynusLink's own reset defaults (register[1]=0x14 is the
 // "board scan time" register other Mode-B hosts read to learn our auto-
@@ -33,6 +46,7 @@ uint8_t cachedStatus[kModeBStatusFrameLength] = {};
 bool haveCachedStatus = false;
 uint8_t lastSentStatus[kModeBStatusFrameLength] = {};
 bool haveSentStatus = false;
+ChesslinkStatusRefresh statusRefresh;
 
 constexpr size_t kMaxNotifyChunk = 64;
 struct RawPacket { uint8_t length; uint8_t data[kMaxNotifyChunk]; };
@@ -61,13 +75,38 @@ size_t writeFrame(const uint8_t* logicalFrame, size_t length) {
   // treatment, which left the BearChess "no LED/status update ever arrives"
   // report (2026-08-31) with no way to tell whether a status change simply
   // never made it out because no client was connected/subscribed yet.
-  enum class SendBlock { None, NotInitialized, NotConnected, NotSubscribed };
+  enum class SendBlock { None, NotInitialized, NotConnected, NotSubscribed, BridgedNotSubscribed };
   static SendBlock lastLoggedBlock = SendBlock::None;
   auto logOnce = [](SendBlock block, const char* message) {
     if (block == lastLoggedBlock) return;
     lastLoggedBlock = block;
     Serial.println(message);
   };
+
+  uint8_t full[kFrameBufferSize];
+  memcpy(full, logicalFrame, length);
+  computeModeBChecksumHex(full + length, full, length, /*useEncodedConvention=*/false);
+  const size_t total = length + 2;
+
+  if (bridgedViaChessnut) {
+    // See bridgedViaChessnut's own comment -- the client is actually
+    // subscribed to Chessnut's own TX characteristic, not this module's own,
+    // and never sent via this module's txChar/connected/notifyEnabled at all.
+    if (!chessnutServerNotifyEnabled()) {
+      logOnce(SendBlock::BridgedNotSubscribed,
+              "[CHESSLINK] frame ready but bridged client has not subscribed yet -- not sent");
+      return 0;
+    }
+    lastLoggedBlock = SendBlock::None;
+    if (chessnutServerWriteRawFrame(full, total) != total) {
+      Serial.println("[CHESSLINK] bridged notify failed");
+      return 0;
+    }
+    Serial.printf("[CHESSLINK] %c frame notified to bridged client (%u bytes)\r\n",
+                  static_cast<char>(logicalFrame[0]), static_cast<unsigned>(total));
+    return total;
+  }
+
   if (txChar == nullptr) {
     logOnce(SendBlock::NotInitialized, "[CHESSLINK] frame ready but server not initialized -- not sent");
     return 0;
@@ -83,11 +122,6 @@ size_t writeFrame(const uint8_t* logicalFrame, size_t length) {
   }
   lastLoggedBlock = SendBlock::None;
 
-  uint8_t full[kFrameBufferSize];
-  memcpy(full, logicalFrame, length);
-  computeModeBChecksumHex(full + length, full, length, /*useEncodedConvention=*/false);
-  const size_t total = length + 2;
-
   uint16_t mtu = 23;
   if (server != nullptr && connHandle != BLE_HS_CONN_HANDLE_NONE) {
     const uint16_t peerMtu = server->getPeerMTU(connHandle);
@@ -95,20 +129,49 @@ size_t writeFrame(const uint8_t* logicalFrame, size_t length) {
   }
   const size_t maxPayload = mtu > 3 ? static_cast<size_t>(mtu - 3) : 20;
 
+  // Diagnostic, 2026-09-08: unlike chessnut_server.cpp's own sendBoardFrame()
+  // ("board frame notified to client"), this function never logged anything
+  // on a SUCCESSFUL send -- only the three blocked-reason cases above. That
+  // made it impossible to tell "the notify actually went out" from "nothing
+  // in this function ever ran" purely from the log, while chasing "client
+  // connects but never sees a move" (BC/Chess Dojo, same session). Also logs
+  // the actual MTU-based chunk count -- kModeBStatusFrameLength (67 bytes)
+  // exceeds a single chunk at the BLE default/minimum MTU (23, giving 20
+  // payload bytes), and multiple notify() calls for one logical frame do NOT
+  // reassemble on the receiving end (no such protocol exists for BLE
+  // notifications) -- confirmed this exact bug independently in this same
+  // session's Chessnut-bridge code. If MTU is ever still at its default here
+  // when a status frame is due, this send silently corrupts every one.
+  const size_t chunkCount = (total + maxPayload - 1) / maxPayload;
+  if (chunkCount > 1) {
+    Serial.printf("[CHESSLINK] WARNING: sending %u-byte frame in %u notify() chunks (mtu=%u) -- "
+                  "BLE notifications do not reassemble across multiple notify() calls, this will "
+                  "likely arrive corrupted\r\n",
+                  static_cast<unsigned>(total), static_cast<unsigned>(chunkCount), mtu);
+  }
   for (size_t offset = 0; offset < total; offset += maxPayload) {
     const size_t count = std::min(maxPayload, total - offset);
     txChar->setValue(full + offset, count);
-    txChar->notify();
+    if (!txChar->notify()) {
+      Serial.println("[CHESSLINK] notify failed");
+      return 0;
+    }
     if (offset + count < total) delay(8);
   }
+  Serial.printf("[CHESSLINK] %c frame notified to client (%u bytes, mtu=%u)\r\n",
+                static_cast<char>(logicalFrame[0]), static_cast<unsigned>(total), mtu);
   return total;
 }
 
-void sendStatus() {
-  if (!haveCachedStatus) return;
-  writeFrame(cachedStatus, kModeBStatusFrameLength);
+bool sendStatus(const char* reason) {
+  if (!haveCachedStatus) return false;
+  Serial.printf("[CHESSLINK] status send requested: %s\r\n", reason);
+  // The status frame length includes its two checksum characters.
+  // writeFrame appends a fresh checksum after the command and 64 squares.
+  if (writeFrame(cachedStatus, kModeBStatusFrameLength - 2) != kModeBStatusFrameLength) return false;
   memcpy(lastSentStatus, cachedStatus, sizeof(lastSentStatus));
   haveSentStatus = true;
+  return true;
 }
 
 bool hexNibble(uint8_t c, int& value) {
@@ -139,7 +202,7 @@ void appendHex(uint8_t* out, size_t& pos, uint8_t value) {
 void handleFrame(const uint8_t* frame, size_t length) {
   switch (frame[0]) {
     case 'S':
-      sendStatus();
+      if (sendStatus("S command")) statusRefresh.reset();
       break;
     case 'V':
       writeFrame(reinterpret_cast<const uint8_t*>("v0100"), 5);
@@ -151,6 +214,7 @@ void handleFrame(const uint8_t* frame, size_t length) {
     case 'T':
       resetRegisters();
       haveSentStatus = false;
+      statusRefresh.reset();
       Serial.println("[CHESSLINK] Magic Board reset command received; register defaults restored");
       break;
     case 'R': {
@@ -168,7 +232,12 @@ void handleFrame(const uint8_t* frame, size_t length) {
       uint8_t addr, value;
       if (!hexByte(frame[1], frame[2], addr) || !hexByte(frame[3], frame[4], value)) break;
       registers[addr] = value;
-      if (addr == 1 || addr == 2 || addr == 3) haveSentStatus = false;
+      // A register write does not change the board position. Keep the
+      // last-sent status so Poll does not inject a duplicate 's' after
+      // this command's 'w' reply during the client's handshake.
+      // Refresh once after the whole configuration burst has gone quiet;
+      // BearChess can discard the subscription-time position while probing V.
+      if (addr == 1 || addr == 2 || addr == 3) statusRefresh.schedule(millis());
       uint8_t reply[7];
       size_t pos = 0;
       reply[pos++] = 'w';
@@ -212,8 +281,10 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
       return;
     }
     connected = true;
+    statusRefresh.reset();
     connHandle = info.getConnHandle();
     haveSentStatus = false;
+    bridgedViaChessnut = false;  // determined per-write, see chesslinkServerHandleExternalWrite()
     Serial.printf("[CHESSLINK] client connected %s\r\n", info.getAddress().toString().c_str());
     if (server != nullptr) {
       // Fast connection interval, matching CynusLink's own proven tuning --
@@ -227,7 +298,32 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
     notifyEnabled = false;
     connHandle = BLE_HS_CONN_HANDLE_NONE;
     rxFrameLength = 0;
+    statusRefresh.reset();
+    if (bridgedViaChessnut) {
+      // chessnut_server.cpp's own onDisconnect never runs while ChessLink
+      // owns the connection -- see chessnutServerResetBridgeState()'s own
+      // comment for why this explicit call is needed instead.
+      chessnutServerResetBridgeState();
+      bridgedViaChessnut = false;
+    }
     NimBLEDevice::startAdvertising();
+  }
+
+  // Ported from chessnut_server.cpp's own ServerCallbacks -- this module
+  // never had the same instrumentation, leaving the whole "link connected"
+  // to "client starts using GATT" window invisible here specifically.
+  // Added 2026-09-08 while chasing "BC/Chess Dojo connect but never play".
+  void onMTUChange(uint16_t mtu, NimBLEConnInfo& info) override {
+    Serial.printf("[CHESSLINK] MTU changed to %u for %s\r\n", mtu,
+                  info.getAddress().toString().c_str());
+  }
+  void onConnParamsUpdate(NimBLEConnInfo& info) override {
+    Serial.printf("[CHESSLINK] connection parameters updated for %s\r\n",
+                  info.getAddress().toString().c_str());
+  }
+  void onPhyUpdate(NimBLEConnInfo& info, uint8_t txPhy, uint8_t rxPhy) override {
+    Serial.printf("[CHESSLINK] PHY updated for %s: tx=%u rx=%u\r\n",
+                  info.getAddress().toString().c_str(), txPhy, rxPhy);
   }
 };
 
@@ -241,8 +337,10 @@ class TxCallbacks final : public NimBLECharacteristicCallbacks {
     // specific, non-selected service's characteristic. See that guard's own
     // comment for the full real-hardware story.
     if (!started) {
-      Serial.println("[CHESSLINK] ignoring subscribe on tx characteristic; ChessLink masquerade "
-                      "was not selected this session");
+      notifyEnabled = subValue != 0;
+      Serial.printf("[CHESSLINK] client %s notifications on tx characteristic (ChessLink masquerade "
+                    "not selected -- tracked only for the Chessnut bridge)\r\n",
+                    notifyEnabled ? "enabled" : "disabled");
       return;
     }
     notifyEnabled = subValue != 0;
@@ -272,7 +370,13 @@ class RxCallbacks final : public NimBLECharacteristicCallbacks {
       Serial.printf("[CHESSLINK RX WRITE] started=%d len=%u bytes=%s\r\n", started ? 1 : 0,
                     static_cast<unsigned>(rawValue.size()), hex);
     }
-    if (!started) return;  // see TxCallbacks::onSubscribe's own comment
+    if (!started) {
+      if (!rawValue.empty() && modeBCommandLength(static_cast<uint8_t>(rawValue[0]) & 0x7f) == 0) {
+        chessnutServerHandleExternalWrite(
+            reinterpret_cast<const uint8_t*>(rawValue.data()), rawValue.size());
+      }
+      return;
+    }
     if (rxQueue == nullptr) return;
     const std::string value = characteristic->getValue();
     size_t offset = 0;
@@ -347,17 +451,23 @@ void chesslinkServerStart() {
   // at Init() -- is what keeps the two modes from clobbering each other.
   server->setCallbacks(&serverCallbacks);
 
-  // enableScanResponse(true) must come before setName() -- NimBLEAdvertising
-  // ::setName() only routes the name into the scan response if scan-
-  // response mode is already enabled at the moment it's called; called
-  // afterwards (the previous order here), it instead tries to fit the name
-  // into the primary packet alongside the service UUID, which can silently
-  // drop the name if that overflows. See chessnut_server.cpp's own fix for
-  // the same bug -- ported back here for consistency once found.
+  // Explicit, separate primary/scan-response packets -- NOT the implicit
+  // enableScanResponse(true)+setName()+addServiceUUID() convenience
+  // sequence this used before, which relies on NimBLE's own internal
+  // auto-splitting logic to put the UUID (18 bytes) and name (18 bytes,
+  // together 36 > the 31-byte legacy primary-packet limit) into the right
+  // packet -- never independently verified to actually do so. Matches
+  // VirtualT2's own proven-working Android GATT server (confirmed reliably
+  // connecting to BC in ~2s): primary packet carries only the service UUID,
+  // scan response carries only the name.
+  NimBLEAdvertisementData advertisementData;
+  advertisementData.addServiceUUID(kServiceUuid);
+  NimBLEAdvertisementData scanResponseData;
+  scanResponseData.setName(kName);
+
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
-  advertising->enableScanResponse(true);
-  advertising->setName(kName);
-  advertising->addServiceUUID(kServiceUuid);
+  advertising->setAdvertisementData(advertisementData);
+  advertising->setScanResponseData(scanResponseData);
   NimBLEDevice::startAdvertising();
 
   started = true;
@@ -370,6 +480,7 @@ void chesslinkServerPoll() {
   if (!started) return;
   RawPacket packet;
   while (rxQueue != nullptr && xQueueReceive(rxQueue, &packet, 0) == pdTRUE) {
+    statusRefresh.noteTraffic(millis());
     for (uint8_t i = 0; i < packet.length; ++i) processByte(packet.data[i]);
   }
 
@@ -390,6 +501,7 @@ void chesslinkServerPoll() {
       connected = false;
       notifyEnabled = false;
       connHandle = BLE_HS_CONN_HANDLE_NONE;
+      statusRefresh.reset();
     }
     if (!connected) {
       NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -400,40 +512,75 @@ void chesslinkServerPoll() {
     }
   }
 
-  if (connected && notifyEnabled && haveCachedStatus &&
+  const bool subscribedEitherWay =
+      (connected && notifyEnabled) || (bridgedViaChessnut && chessnutServerNotifyEnabled());
+  // Never insert the refresh into a partially received command. A failed
+  // notification leaves it pending and spaces retries by the same grace period.
+  if (subscribedEitherWay && haveCachedStatus && rxFrameLength == 0 &&
+      statusRefresh.due(millis())) {
+    if (sendStatus("configuration settled")) statusRefresh.reset();
+    else statusRefresh.noteTraffic(millis());
+  }
+  if (subscribedEitherWay && haveCachedStatus &&
       (!haveSentStatus || memcmp(lastSentStatus, cachedStatus, sizeof(cachedStatus)) != 0)) {
-    sendStatus();
+    sendStatus(haveSentStatus ? "poll: position changed" : "poll: initial/reset status");
   }
 }
 
 void chesslinkServerPublishStatus(const uint8_t frame[kModeBStatusFrameLength]) {
-  // frame's 64 board bytes are in the cable/King wire layout
-  // (modeBStatusWireIndex(): rank ascending from 1, file reversed h..a --
-  // proven correct for that transport, see board_driver.h's own comment).
-  // A real BLE ChessLink client (BearChess) instead expects plain board64
-  // order, exactly like CynusLink's own proven sendStatus() ("for (int i =
-  // 0; i < 64; ++i) p += board64[i];", no rotation at all). Relaying frame
-  // unconverted sent BearChess a 180-degree-rotated board (confirmed via a
-  // real capture 2026-09-04: a played e2-e4 arrived describable only as a
-  // rotated square, and BearChess's own reply move then decoded to
-  // nonsense squares because it was computed against that wrong board).
-  // chessnut_server.cpp's buildBoardFrame() already undoes this same
-  // rotation for its own protocol -- this is the same fix, for ChessLink.
-  cachedStatus[0] = frame[0];
-  for (int rankTop = 0; rankTop < 8; ++rankTop) {
-    const int rank = 8 - rankTop;
-    for (int file0 = 0; file0 < 8; ++file0) {
-      cachedStatus[1 + rankTop * 8 + file0] = frame[1 + modeBStatusWireIndex(file0, rank)];
-    }
-  }
+  // Preserve Mode-B wire order (h1..a1 through h8..a8) over BLE too.
+  // BearChess reverses this order when constructing its FEN. Its receive
+  // log on 2026-09-08 confirmed that sending FEN order here instead placed
+  // white at the top and turned the real e2-e4 move into d7-d5.
+  // sendStatus passes only the 65 payload bytes to writeFrame, which
+  // computes the outgoing checksum independently of the cable checksum.
+  memcpy(cachedStatus, frame, sizeof(cachedStatus));
   haveCachedStatus = true;
   // Immediate forward, mirroring the cable path's own immediate-forward
   // behavior in onBoardStatusFrame() -- chesslinkServerPoll()'s own
   // resend-on-change check then has nothing new to do until the position
-  // changes again.
-  if (connected && notifyEnabled) sendStatus();
+  // changes again. Also covers the bridged case (see bridgedViaChessnut) --
+  // this module's own connected/notifyEnabled stay false there, so checking
+  // only those would silently skip every send for a bridged client.
+  if ((connected && notifyEnabled) || (bridgedViaChessnut && chessnutServerNotifyEnabled())) {
+    sendStatus("board status published");
+  }
 }
 
 size_t chesslinkServerWriteFrame(const uint8_t* logicalFrame, size_t length) {
   return writeFrame(logicalFrame, length);
+}
+
+bool chesslinkServerNotifyEnabled() { return notifyEnabled; }
+
+size_t chesslinkServerWriteRawFrame(const uint8_t* rawFrame, size_t length) {
+  if (txChar == nullptr || !notifyEnabled) return 0;
+  txChar->setValue(rawFrame, length);
+  txChar->notify();
+  return length;
+}
+
+void chesslinkServerResetBridgeState() {
+  notifyEnabled = false;
+}
+
+void chesslinkServerHandleExternalWrite(const uint8_t* data, size_t length) {
+  if (!started) return;  // ChessLink mode isn't the one actually selected either
+  if (rxQueue == nullptr || length == 0) return;
+  // A write arriving here means the connected client is a ChessLink one
+  // that ended up on Chessnut's characteristics instead of this module's
+  // own (see bridgedViaChessnut's own comment) -- the shared NimBLEServer-
+  // level ServerCallbacks::onConnect() for THIS module already ran (it owns
+  // the callback slot whenever ChessLink mode is selected, confirmed by
+  // "[CHESSLINK] client connected" already having logged), so `connected`
+  // is already true; only the bridge flag and reply routing need setting.
+  bridgedViaChessnut = true;
+  size_t offset = 0;
+  while (offset < length) {
+    RawPacket packet{};
+    packet.length = static_cast<uint8_t>(std::min(length - offset, kMaxNotifyChunk));
+    memcpy(packet.data, data + offset, packet.length);
+    xQueueSend(rxQueue, &packet, 0);
+    offset += packet.length;
+  }
 }

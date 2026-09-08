@@ -49,3 +49,18 @@ void chesslinkServerPublishStatus(const uint8_t frame[kModeBStatusFrameLength]);
 // the active host transport -- e.g. forwarding a genuine reply from the
 // real underlying Millennium board (register read, its own 'l' ack, ...).
 size_t chesslinkServerWriteFrame(const uint8_t* logicalFrame, size_t length);
+
+bool chesslinkServerNotifyEnabled();
+size_t chesslinkServerWriteRawFrame(const uint8_t* rawFrame, size_t length);
+void chesslinkServerResetBridgeState();
+
+// Mirror image of chessnutServerHandleExternalWrite() -- feeds a raw byte
+// sequence that arrived on chessnut_server.cpp's own RX characteristic (when
+// that client's write parses as a valid Mode-B command, i.e. it's really a
+// ChessLink client that landed on the wrong service) into this module's own
+// command dispatch, as if it had arrived on our own RX characteristic
+// directly. Every subsequent reply routes back out via
+// chessnutServerWriteRawFrame() instead of this module's own TX
+// characteristic, since that's the notify channel the client actually
+// subscribed to.
+void chesslinkServerHandleExternalWrite(const uint8_t* data, size_t length);

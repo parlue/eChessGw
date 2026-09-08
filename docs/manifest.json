@@ -1,6 +1,6 @@
 {
   "name": "eChessGw",
-  "version": "v6.9 (rebrand: eChessGw; removed unjustified BLE MTU request)",
+  "version": "v8 (bidirectional ChessLink/Chessnut GATT bridge; fixed outgoing ChessLink status-frame checksum)",
   "new_install_prompt_erase": true,
   "builds": [
     {
