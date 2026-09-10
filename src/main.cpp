@@ -2,7 +2,6 @@
 #include <NimBLEDevice.h>
 
 #include <algorithm>
-#include <atomic>
 
 #include "board_driver.h"
 #include "chesslink_server.h"
@@ -85,13 +84,7 @@ bool ledsAwaitingClear = false;
 
 uint32_t lastConnectAttemptMs = 0;
 BoardType activeBoardType = BoardType::Unknown;
-std::atomic<bool> connectInProgress{false};
-std::atomic<bool> connectFinished{false};
-bool connectSucceeded = false;
-BoardType sessionBoardType = BoardType::Unknown;
-NimBLEAddress sessionBoardAddress;
-bool compareReconnectedPosition = false;
-uint8_t preReconnectStatus[kModeBStatusFrameLength] = {};
+volatile bool connectInProgress = false;
 
 // --- BT-BT mode: dual-BLE operation when no cable-side host is present ----
 //
@@ -166,7 +159,6 @@ void statusLedTask(void*) {
 }
 
 bool anyBoardConnected() {
-  if (connectInProgress.load()) return false;
   switch (activeBoardType) {
     case BoardType::Millennium: return millenniumIsConnected();
     case BoardType::Chessnut: return chessnutIsConnected();
@@ -179,9 +171,7 @@ bool anyBoardConnected() {
   }
 }
 
-void clearActiveBoardLeds() {
-  if (anyBoardConnected()) clearBoardLeds(activeBoardType);
-}
+void clearActiveBoardLeds() { clearBoardLeds(activeBoardType); }
 
 struct KnownBoard {
   const char* name;
@@ -218,28 +208,8 @@ bool scanForKnownBoard(NimBLEAddress& address, BoardType& type) {
 
   for (int i = 0; i < results.getCount(); ++i) {
     const NimBLEAdvertisedDevice* device = results.getDevice(i);
-    // Keep the selected driver/protocol, not a fixed BLE address. Android
-    // peripherals can change addresses. Still recognize the last successful
-    // peer without a name; every candidate goes through driver GATT checks.
-    if (sessionBoardType != BoardType::Unknown &&
-        !(device->getAddress() != sessionBoardAddress)) {
-      address = sessionBoardAddress;
-      type = sessionBoardType;
-      Serial.printf("[RECONNECT] session board found: %s\r\n", address.toString().c_str());
-      scan->clearResults();
-      return true;
-    }
-    // ChessLink emulators need not use the Millennium device name.
-    if (sessionBoardType == BoardType::Millennium &&
-        device->isAdvertisingService(NimBLEUUID("49535343-fe7d-4ae5-8fa9-9fafd205e455"))) {
-      address = device->getAddress();
-      type = sessionBoardType;
-      scan->clearResults();
-      return true;
-    }
     if (!device->haveName()) continue;
     for (const KnownBoard& known : kKnownBoards) {
-      if (sessionBoardType != BoardType::Unknown && known.type != sessionBoardType) continue;
       if (containsCaseInsensitive(device->getName(), known.name)) {
         address = device->getAddress();
         type = known.type;
@@ -272,29 +242,7 @@ bool connectToBoard() {
                                                            : false;
   if (!connected) return false;
 
-  if (sessionBoardType == BoardType::Unknown) {
-    sessionBoardType = type;
-    Serial.println("[SESSION] board protocol locked until reboot; peer address may change");
-  }
-  sessionBoardAddress = address;
-  Serial.printf("[SESSION] connected peer: %s (addr type %d)\r\n",
-                address.toString().c_str(), address.getType());
-  return true;
-}
-
-// Commit on loop(), after the worker publishes completion. No polling or
-// host commands may enter a driver while its GATT setup is still running.
-void finishConnectAttempt() {
-  if (!connectFinished.exchange(false)) return;
-  if (!connectSucceeded) {
-    connectInProgress.store(false);
-    return;
-  }
-  if (haveCachedBoardStatus) {
-    memcpy(preReconnectStatus, cachedBoardStatus, sizeof(preReconnectStatus));
-    compareReconnectedPosition = true;
-  }
-  activeBoardType = sessionBoardType;
+  activeBoardType = type;
   ledState = LedState::Connected;
   haveCachedBoardStatus = false;
   haveSentStatusToKing = false;
@@ -302,13 +250,18 @@ void finishConnectAttempt() {
   ledsAwaitingClear = false;
   lastCableStatusSendMs = millis();
   autonomousStatusIntervalMs = kFallbackAutoReportIntervalMs;
-  connectInProgress.store(false);
+  return true;
 }
 
-// Scan and GATT setup can take seconds; keep the cable-facing loop alive.
+// The underlying BLE library's connect() call has no internal timeout and
+// can block forever if a peer accepts the link at the radio level but never
+// completes the GATT-open handshake (observed with some non-Millennium
+// boards). Running each attempt on its own task keeps a stuck connect from
+// freezing King's cable-facing loop() -- the one board interface that must
+// never be affected by anything on the BLE side.
 void connectTask(void*) {
-  connectSucceeded = connectToBoard();
-  connectFinished.store(true);
+  connectToBoard();
+  connectInProgress = false;
   vTaskDelete(nullptr);
 }
 
@@ -318,7 +271,6 @@ void connectTask(void*) {
 // square SET differs between the "ready" and "confirmed" stages, not the
 // board type); Cynus has no LEDs, so it shows the given text instead.
 void showBtBtSignal(const uint8_t* squares, size_t count, const char* cynusText) {
-  if (!anyBoardConnected()) return;
   switch (activeBoardType) {
     case BoardType::Millennium: {
       uint8_t frame[kFrameBufferSize] = {};
@@ -496,13 +448,12 @@ void appendCableHex(uint8_t* out, size_t& pos, uint8_t value) {
 
 // All replies built here use the plain checksum convention, never
 // cableHostUsesEncodedChecksum -- see sendCableStatusFrame()'s own comment
-// in chessnut_board.cpp for the full reasoning (found 2026-08-31 via
-// Elfacun/Diablillo's proven-working reference source): a real Mode-B
-// board's outgoing checksum is always computed over plain content, with
-// odd-parity encoding applied to the whole frame afterward as a separate
-// step. cableHostUsesEncodedChecksum only describes how to interpret
-// Phoenix's OWN incoming frames, not what convention our replies should
-// use.
+// in chessnut_board.cpp for the full reasoning (found 2026-08-31): a real
+// Mode-B board's outgoing checksum is always computed over plain content,
+// with odd-parity encoding applied to the whole frame afterward as a
+// separate step. cableHostUsesEncodedChecksum only describes how to
+// interpret Phoenix's OWN incoming frames, not what convention our replies
+// should use.
 void handleNonMillenniumCableCommand(const uint8_t* frame, size_t length) {
   switch (frame[0] & 0x7f) {
     case 'S':
@@ -659,11 +610,11 @@ void receiveFromMillenniumComputer() {
           // (chesslink_server.cpp) so King/Phoenix on the cable and
           // external ChessLink software over BLE get identical per-board
           // LED handling -- see dispatchLedFrameToBoard()'s own comment.
-          if (anyBoardConnected()) dispatchLedFrameToBoard(activeBoardType, uartFrame);
+          dispatchLedFrameToBoard(activeBoardType, uartFrame);
         } else if (activeBoardType == BoardType::Millennium) {
           // King never sends non-'L' commands in practice, but relay
           // anything else unchanged too, exactly as always.
-          if (anyBoardConnected()) millenniumRelayCommand(uartFrame, expected);
+          millenniumRelayCommand(uartFrame, expected);
         } else {
           // Chessnut/Cynus have no real Mode-B peer to relay to/from -- see
           // handleNonMillenniumCableCommand()'s own comment for why this
@@ -706,9 +657,7 @@ bool haveAnyBoardStatus() { return haveCachedBoardStatus; }
 
 const uint8_t* cachedBoardStatusBytes() { return haveCachedBoardStatus ? cachedBoardStatus : nullptr; }
 
-BoardType currentBoardType() {
-  return connectInProgress.load() ? BoardType::Unknown : activeBoardType;
-}
+BoardType currentBoardType() { return activeBoardType; }
 
 uint32_t autonomousStatusIntervalMs = kFallbackAutoReportIntervalMs;
 bool cableHostUsesEncodedChecksum = false;
@@ -754,15 +703,6 @@ void logHumanReadableFen(const uint8_t frame[kModeBStatusFrameLength]) {
 }
 
 void onBoardStatusFrame(const uint8_t frame[kModeBStatusFrameLength]) {
-  if (compareReconnectedPosition) {
-    unsigned changedSquares = 0;
-    for (size_t i = 1; i <= 64; ++i) {
-      if (preReconnectStatus[i] != frame[i]) ++changedSquares;
-    }
-    Serial.printf("[RECONNECT] fresh position: %u changed square(s) since disconnect\r\n",
-                  changedSquares);
-    compareReconnectedPosition = false;
-  }
   if (!haveLoggedStatus || memcmp(lastLoggedStatus, frame, kModeBStatusFrameLength) != 0) {
     memcpy(lastLoggedStatus, frame, kModeBStatusFrameLength);
     haveLoggedStatus = true;
@@ -897,7 +837,6 @@ void setup() {
 }
 
 void loop() {
-  finishConnectAttempt();
   if (verboseCableLogArmed && static_cast<int32_t>(millis() - verboseCableLogUntilMs) >= 0) {
     verboseCableLogArmed = false;
     dumpVerboseCableLog();
@@ -998,10 +937,7 @@ void loop() {
       static_cast<uint32_t>(nowMs - lastConnectAttemptMs) >= kReconnectIntervalMs) {
     lastConnectAttemptMs = nowMs;
     connectInProgress = true;
-    if (xTaskCreate(connectTask, "board-connect", 8192, nullptr, 1, nullptr) != pdPASS) {
-      connectInProgress.store(false);
-      Serial.println("[RECONNECT] could not create connection task; will retry");
-    }
+    xTaskCreate(connectTask, "board-connect", 8192, nullptr, 1, nullptr);
   }
 
   static uint32_t lastStatusMs = 0;

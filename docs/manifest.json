@@ -1,6 +1,6 @@
 {
   "name": "eChessGw",
-  "version": "v9 (BLE link-health watchdog: probes a quiet connection and recovers a stuck link instead of hanging silently)",
+  "version": "v9 (simplified, working reconnect logic; removed the unstable session-pinning/atomic connect tracking)",
   "new_install_prompt_erase": true,
   "builds": [
     {
