@@ -53,6 +53,7 @@ uint32_t lastBoardChangeMs = 0;
 bool ledSettlePending = false;
 uint8_t deferredLedFrame[167] = {};
 bool haveDeferredLedFrame = false;
+int selectionQueenWireIndex = -1;
 // A short debounce, not a multi-second one -- this is a real-time board,
 // per the user's explicit correction. 500ms is enough to bridge a piece
 // being physically slid across adjacent squares (each square's sensor
@@ -187,6 +188,12 @@ void handleBoardDataPacket(const uint8_t* data, size_t length) {
     }
   }
 
+  if (selectionQueenWireIndex >= 0 && currentBoard[selectionQueenWireIndex] == '.') {
+    settledBoard[selectionQueenWireIndex] = '.';
+    selectionQueenWireIndex = -1;
+    Serial.println("[CHESSNUT LED] selection queen removed; cleared local baseline square");
+  }
+
   sendCableStatusFrame();
   armVerboseCableLog();
 
@@ -285,6 +292,7 @@ bool chessnutConnect(const NimBLEAddress& address) {
   resetKingLedFrameBaseline();
   haveLastRawBoardData = false;
   haveSettledBoard = false;
+  selectionQueenWireIndex = -1;
   ledSettlePending = false;
   haveDeferredLedFrame = false;
 
@@ -301,6 +309,12 @@ bool chessnutConnect(const NimBLEAddress& address) {
 void chessnutDeferLedFrame(const uint8_t frame167[167]) {
   memcpy(deferredLedFrame, frame167, sizeof(deferredLedFrame));
   haveDeferredLedFrame = true;
+}
+
+void chessnutTrackSelectionQueen(int mode) {
+  if (mode == 0 || mode == 1) {
+    selectionQueenWireIndex = modeBStatusWireIndex(mode, 4);
+  }
 }
 
 void chessnutSetHighlightedSquares(const SquareHighlight* squares, size_t count) {

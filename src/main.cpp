@@ -378,6 +378,7 @@ void processBtBtStateMachine() {
       const int mode = detectBtBtModeSelection();
       if (mode < 0) break;
       btBtSelectedMode = mode;
+      if (activeBoardType == BoardType::Chessnut) chessnutTrackSelectionQueen(mode);
       Serial.printf("BT-BT mode: %s selected via second white queen\r\n",
                     mode == 0 ? "ChessLink" : "Chessnut");
       showBtBtSignal(kCornerSquares, 4, mode == 0 ? "ChessL" : "Chnut");

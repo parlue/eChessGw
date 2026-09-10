@@ -50,6 +50,9 @@ bool chessnutHasLocalDeviation();
 // Keep the latest host LED frame while local movement takes display priority.
 void chessnutDeferLedFrame(const uint8_t frame167[167]);
 
+// The extra mode-selection queen is temporary, not a missing game piece.
+void chessnutTrackSelectionQueen(int mode);
+
 // Count of BLE board-data notifications lost because our internal queue was
 // full when they arrived -- added 2026-08-31 to test whether "sometimes
 // yes, sometimes no" status updates for a given square are being dropped

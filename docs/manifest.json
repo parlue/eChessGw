@@ -1,6 +1,6 @@
 {
   "name": "eChessGw",
-  "version": "v9.1 (bugfixes: preserve host LED suggestion behind a local-deviation display and replay it after settle; cable checksum-convention policy gates King's active GO status separately from Phoenix's reply-slot timing)",
+  "version": "v9.2 (bugfix: the extra selection queen used to pick BT-BT mode no longer counts as a missing board piece once removed)",
   "new_install_prompt_erase": true,
   "builds": [
     {
