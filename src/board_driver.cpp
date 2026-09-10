@@ -301,6 +301,10 @@ void dispatchLedFrameToBoard(BoardType type, const uint8_t frame167[167]) {
     // the square was now empty. Phoenix's own suggestion is moot anyway
     // until the board is physically corrected, so it can wait.
     if (chessnutHasLocalDeviation()) {
+      // King may send the reply only once, before the GO's 500ms settle.
+      // Replay the latest frame afterwards through this same decoder and
+      // Phoenix accumulator. Empty frames supersede older suggestions too.
+      chessnutDeferLedFrame(frame167);
       chessnutShowLocalBoardDeviations();
     } else if (count > 0) {
       // Mephisto Phoenix reveals one move by alternating between two

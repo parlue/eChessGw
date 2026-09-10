@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include "board_driver.h"
+#include "cable_status_policy.h"
 #include "chesslink_server.h"
 #include "chessnut_board.h"
 #include "chessnut_server.h"
@@ -80,6 +81,7 @@ uint32_t lastCableStatusSendMs = 0;
 uint8_t lastLoggedStatus[kModeBStatusFrameLength] = {};
 bool haveLoggedStatus = false;
 bool ledsAwaitingClear = false;
+CableStatusPolicy cableStatusPolicy;
 
 
 uint32_t lastConnectAttemptMs = 0;
@@ -547,6 +549,24 @@ void receiveFromMillenniumComputer() {
       if (uartFrameLength < expected) break;
       bool frameUsedEncodedChecksum = false;
       if (modeBValidBlock(uartFrame, expected, &frameUsedEncodedChecksum)) {
+        const auto previousConvention = cableStatusPolicy.convention();
+        // Use the host's LED frames to enable King timing; short setup
+        // commands alone must not enable unsolicited GO reports. Encoded-only
+        // evidence from ANY command retains the conservative Phoenix path.
+        if (frameUsedEncodedChecksum) {
+          cableStatusPolicy.observe(false, true);
+        } else if (uartFrame[0] == 'L' && expected == 167) {
+          // The validator tries plain first. Reject ambiguous evidence.
+          uint8_t plainChecksum[2], encodedChecksum[2];
+          computeModeBChecksumHex(plainChecksum, uartFrame, expected - 2, false);
+          computeModeBChecksumHex(encodedChecksum, uartFrame, expected - 2, true);
+          cableStatusPolicy.observe(true, memcmp(plainChecksum, encodedChecksum, 2) == 0);
+        }
+        if (cableStatusPolicy.convention() != previousConvention) {
+          Serial.println(cableStatusPolicy.allowActiveGoStatus()
+              ? "[CABLE] plain-only checksum: enabling active GO status (King timing)"
+              : "[CABLE] encoded-only checksum: GO status in reply slots (Phoenix timing)");
+        }
         if (frameUsedEncodedChecksum && !cableHostUsesEncodedChecksum) {
           cableHostUsesEncodedChecksum = true;
           Serial.println("Cable host uses the odd-parity-encoded checksum "
@@ -766,7 +786,10 @@ void onBoardStatusFrame(const uint8_t frame[kModeBStatusFrameLength]) {
   // frame there gets silently corrected by the next real move a moment
   // later; a one-shot full-board publish has no such second chance). Cynus
   // now relies on the same synchronized 'L'-frame resend path as Chessnut.
-  if (activeHostTransport == HostTransport::Cable && activeBoardType != BoardType::Chessnut &&
+  // King needs active reporting from the emulated GO board. Enable it only
+  // after plain-only evidence; unknown/Phoenix retain the L/S response path.
+  if (activeHostTransport == HostTransport::Cable &&
+      (activeBoardType != BoardType::Chessnut || cableStatusPolicy.allowActiveGoStatus()) &&
       activeBoardType != BoardType::Cynus) {
     const size_t written = writeFrameToKing(frame, kModeBStatusFrameLength);
     memcpy(lastStatusSentToKing, frame, kModeBStatusFrameLength);
@@ -901,7 +924,10 @@ void loop() {
     // the matching change in onBoardStatusFrame() above -- see that
     // comment for the real-hardware symptom (partial position landing at
     // Phoenix) that prompted it.
-    if (activeHostTransport == HostTransport::Cable && activeBoardType != BoardType::Chessnut &&
+    // Also delivers a position cached before the King convention was known.
+    // For unknown/encoded hosts the previous GO exclusion stays in effect.
+    if (activeHostTransport == HostTransport::Cable &&
+        (activeBoardType != BoardType::Chessnut || cableStatusPolicy.allowActiveGoStatus()) &&
         activeBoardType != BoardType::Cynus &&
         haveCachedBoardStatus &&
         (!haveSentStatusToKing ||

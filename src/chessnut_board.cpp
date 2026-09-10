@@ -51,6 +51,8 @@ char settledBoard[64] = {};
 bool haveSettledBoard = false;
 uint32_t lastBoardChangeMs = 0;
 bool ledSettlePending = false;
+uint8_t deferredLedFrame[167] = {};
+bool haveDeferredLedFrame = false;
 // A short debounce, not a multi-second one -- this is a real-time board,
 // per the user's explicit correction. 500ms is enough to bridge a piece
 // being physically slid across adjacent squares (each square's sensor
@@ -169,6 +171,8 @@ void handleBoardDataPacket(const uint8_t* data, size_t length) {
   if (haveLastRawBoardData && memcmp(lastRawBoardData, raw, 32) == 0) return;
   memcpy(lastRawBoardData, raw, 32);
   haveLastRawBoardData = true;
+  // A new position supersedes any suggestion for the previous snapshot.
+  haveDeferredLedFrame = false;
 
   memset(currentBoard, '.', sizeof(currentBoard));
   for (int byteIdx = 0; byteIdx < 32; ++byteIdx) {
@@ -282,6 +286,7 @@ bool chessnutConnect(const NimBLEAddress& address) {
   haveLastRawBoardData = false;
   haveSettledBoard = false;
   ledSettlePending = false;
+  haveDeferredLedFrame = false;
 
   static constexpr uint8_t initCommand[] = {0x21, 0x01, 0x00};
   if (writeChar == nullptr || !writeChar->writeValue(initCommand, sizeof(initCommand), true)) {
@@ -291,6 +296,11 @@ bool chessnutConnect(const NimBLEAddress& address) {
   }
   lastInitialStatusRequestMs = millis();
   return chessnutIsConnected();
+}
+
+void chessnutDeferLedFrame(const uint8_t frame167[167]) {
+  memcpy(deferredLedFrame, frame167, sizeof(deferredLedFrame));
+  haveDeferredLedFrame = true;
 }
 
 void chessnutSetHighlightedSquares(const SquareHighlight* squares, size_t count) {
@@ -310,7 +320,9 @@ void chessnutSetHighlightedSquares(const SquareHighlight* squares, size_t count)
   // unrelated to the earlier 2026-08-30 attempt's own regression. Reverted
   // immediately without a confirmed root cause; do not retry without
   // isolating why it hung first.
-  writeChar->writeValue(command, sizeof(command), true);
+  if (!writeChar->writeValue(command, sizeof(command), true)) {
+    Serial.println("[CHESSNUT LED] BLE write failed");
+  }
 }
 
 void chessnutPoll() {
@@ -363,7 +375,13 @@ void chessnutPoll() {
     }
     if (pieceArrived) {
       memcpy(settledBoard, currentBoard, sizeof(settledBoard));
-      showLocalBoardDeviations();
+      if (haveDeferredLedFrame) {
+        haveDeferredLedFrame = false;
+        Serial.println("[CHESSNUT LED] restoring deferred host frame after settle");
+        dispatchLedFrameToBoard(BoardType::Chessnut, deferredLedFrame);
+      } else {
+        showLocalBoardDeviations();
+      }
     }
     ledSettlePending = false;
   }
