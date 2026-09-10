@@ -1,4 +1,5 @@
 #include "millennium_board.h"
+#include "millennium_link_watchdog.h"
 
 const char kMillenniumBoardName[] = "MILLENNIUM CHESS";
 
@@ -24,6 +25,11 @@ QueueHandle_t uartToBleQueue = nullptr;
 uint8_t bleFrame[kFrameBufferSize];
 size_t bleFrameLength = 0;
 uint32_t lastBleFrameSentMs = 0;
+bool haveConnectionStatus = false;
+uint32_t lastStatusRequestAttemptMs = 0;
+MillenniumLinkWatchdog linkWatchdog;
+bool recoveryRequested = false;
+uint32_t lastRecoveryAttemptMs = 0;
 
 bool suppressNextRealLedAck = false;
 bool suppressNextXAck = false;
@@ -45,7 +51,7 @@ uint8_t pendingLedFrame[167] = {};
 bool havePendingLedFrame = false;
 
 void queueFrameForBle(const uint8_t* frame, size_t length) {
-  if (length == 0 || uartToBleQueue == nullptr) return;
+  if (!millenniumIsConnected() || length == 0 || uartToBleQueue == nullptr) return;
   ProtocolFrame pending{};
   pending.length = static_cast<uint16_t>(length);
   memcpy(pending.data, frame, length);
@@ -67,7 +73,7 @@ void onBoardNotification(NimBLERemoteCharacteristic*, uint8_t* data, size_t leng
 class ClientCallbacks final : public NimBLEClientCallbacks {
  public:
   void onConnect(NimBLEClient*) override {}
-  void onDisconnect(NimBLEClient*, int) override {
+  void onDisconnect(NimBLEClient*, int reason) override {
     boardRx = nullptr;
     suppressNextRealLedAck = false;
     suppressNextXAck = false;
@@ -76,17 +82,30 @@ class ClientCallbacks final : public NimBLEClientCallbacks {
     pendingRegisterQuery2 = false;
     pendingVersionQuery = false;
     autonomousStatusIntervalMs = kFallbackAutoReportIntervalMs;
-    Serial.println("BLE disconnected; reconnecting automatically.");
+    Serial.printf("[MILLENNIUM] BLE disconnected, reason=%d; reconnecting automatically\r\n", reason);
   }
 };
+
+// Called only by connect setup or loop(), never by a BLE callback. Preserve
+// write-with-response and parity encoding; check the actual ATT result.
+bool writeBoardBytes(const uint8_t* data, size_t length) {
+  if (!millenniumIsConnected()) return false;
+  const bool sent = boardRx->writeValue(data, length, true);
+  linkWatchdog.noteWrite(sent);
+  lastBleFrameSentMs = millis();
+  if (!sent) {
+    Serial.printf("[MILLENNIUM] BLE write failed: %u bytes, command=%c\r\n",
+                  static_cast<unsigned>(length), static_cast<char>(data[0] & 0x7f));
+  }
+  return sent;
+}
 
 void requestBoardStatus() {
   if (!millenniumIsConnected()) return;
   static constexpr uint8_t statusRequest[] = {'S', '5', '3'};
   uint8_t encoded[sizeof(statusRequest)] = {};
   for (size_t i = 0; i < sizeof(statusRequest); ++i) encoded[i] = encodeOddParity(statusRequest[i]);
-  boardRx->writeValue(encoded, sizeof(encoded), true);
-  lastBleFrameSentMs = millis();
+  writeBoardBytes(encoded, sizeof(encoded));
 }
 
 // Reads one of the real board's own EEPROM-style registers. The reply is
@@ -103,8 +122,7 @@ void queryBoardRegister(uint8_t addr) {
   frame[4] = static_cast<uint8_t>(hex[checksum & 0x0f]);
   uint8_t encoded[5];
   for (size_t i = 0; i < 5; ++i) encoded[i] = encodeOddParity(frame[i]);
-  boardRx->writeValue(encoded, sizeof(encoded), true);
-  lastBleFrameSentMs = millis();
+  writeBoardBytes(encoded, sizeof(encoded));
 }
 
 // Queries the board's firmware version on connect. The reply is intercepted
@@ -118,8 +136,7 @@ void queryBoardVersion() {
   frame[2] = static_cast<uint8_t>(hex[checksum & 0x0f]);
   uint8_t encoded[3];
   for (size_t i = 0; i < 3; ++i) encoded[i] = encodeOddParity(frame[i]);
-  boardRx->writeValue(encoded, sizeof(encoded), true);
-  lastBleFrameSentMs = millis();
+  writeBoardBytes(encoded, sizeof(encoded));
 }
 
 void sendEncodedFrame(const uint8_t* frame, size_t length) {
@@ -130,14 +147,14 @@ void sendEncodedFrame(const uint8_t* frame, size_t length) {
   size_t offset = 0;
   while (offset < length && millenniumIsConnected()) {
     const size_t chunk = min(mtuPayload, length - offset);
-    boardRx->writeValue(encoded + offset, chunk, true);
+    if (!writeBoardBytes(encoded + offset, chunk)) return;
     offset += chunk;
   }
   lastBleFrameSentMs = millis();
   // Diagnostic added 2026-08-31 while chasing "T2's own LEDs never light" --
   // confirms whether an 'L' frame from King/Phoenix actually made it out
   // over BLE to the real board at all, since nothing else logs this send.
-  if (firstByte == 'L') {
+  if (firstByte == 'L' && offset == length) {
     Serial.printf("UART -> BLE: L frame relayed to real board, %u bytes\r\n",
                   static_cast<unsigned>(length));
   }
@@ -177,6 +194,22 @@ bool millenniumConnect(const NimBLEAddress& address) {
   }
   if (bleToUartQueue == nullptr) bleToUartQueue = xQueueCreate(1024, sizeof(uint8_t));
   if (uartToBleQueue == nullptr) uartToBleQueue = xQueueCreate(256, sizeof(ProtocolFrame));
+  if (bleToUartQueue == nullptr || uartToBleQueue == nullptr) return false;
+  // No old commands or partial replies may cross into the new connection.
+  xQueueReset(bleToUartQueue);
+  xQueueReset(uartToBleQueue);
+  bleFrameLength = 0;
+  havePendingLedFrame = false;
+  suppressNextRealLedAck = false;
+  suppressNextXAck = false;
+  pendingVersionQuery = false;
+  pendingRegisterQuery1 = false;
+  pendingRegisterQuery2 = false;
+  haveConnectionStatus = false;
+  linkWatchdog.reset(millis());
+  recoveryRequested = false;
+  lastBleFrameSentMs = 0;
+  lastStatusRequestAttemptMs = millis();
 
   // Request a fast connection interval before connecting -- a slow/default
   // interval can silently defeat low-latency status forwarding.
@@ -219,7 +252,12 @@ bool millenniumConnect(const NimBLEAddress& address) {
   pendingRegisterQuery2 = true;
   queryBoardRegister(1);  // "board scan time" -- drives our auto-report interval.
   queryBoardRegister(2);  // auto-report mode -- logged only, for diagnostics.
-  return true;
+  if (linkWatchdog.writeFailedRepeatedly()) {
+    Serial.println("[MILLENNIUM] initialization writes failed; disconnecting");
+    bleClient->disconnect();
+    return false;
+  }
+  return millenniumIsConnected();
 }
 
 void millenniumRequestBoardStatus() {
@@ -227,6 +265,7 @@ void millenniumRequestBoardStatus() {
 }
 
 void millenniumRelayLedFrame(const uint8_t* frame167, size_t length) {
+  if (!millenniumIsConnected()) return;
   if (length != sizeof(pendingLedFrame)) return;  // defensive: always 167 in practice
   memcpy(pendingLedFrame, frame167, length);
   havePendingLedFrame = true;
@@ -245,8 +284,7 @@ void millenniumClearLeds() {
   static constexpr uint8_t offLedCommand[] = {'X', '5', '8'};
   uint8_t encoded[sizeof(offLedCommand)] = {};
   for (size_t i = 0; i < sizeof(offLedCommand); ++i) encoded[i] = encodeOddParity(offLedCommand[i]);
-  boardRx->writeValue(encoded, sizeof(encoded), true);
-  lastBleFrameSentMs = millis();
+  if (!writeBoardBytes(encoded, sizeof(encoded))) return;
   // King/Phoenix never asked for this X -- it's purely internal housekeeping
   // (clearing a stale LED suggestion before the next one is shown). The
   // real board's own genuine 'x' ack must not be forwarded to the cable
@@ -256,8 +294,6 @@ void millenniumClearLeds() {
 }
 
 void millenniumPoll() {
-  transmitQueuedFrame();
-
   if (!millenniumIsConnected() || bleToUartQueue == nullptr) return;
 
   uint8_t ascii = 0;
@@ -272,6 +308,7 @@ void millenniumPoll() {
       }
       if (bleFrameLength < expected) break;
       if (modeBValidBlock(bleFrame, expected)) {
+        linkWatchdog.noteReply(millis(), bleFrame[0] == 's');
         // 'v'/'r' replies here answer our own proactive queries on connect;
         // King never asks for these, so they're consumed internally.
         bool suppressAsOwnQueryReply = false;
@@ -326,6 +363,7 @@ void millenniumPoll() {
         } else if (suppressAsOwnQueryReply) {
           // Consumed above; King never asked for this.
         } else if (bleFrame[0] == 's') {
+          haveConnectionStatus = true;
           onBoardStatusFrame(bleFrame);
         } else {
           const size_t written = writeFrameToKing(bleFrame, expected);
@@ -344,10 +382,32 @@ void millenniumPoll() {
     }
   }
 
-  static uint32_t lastStatusRequestAttemptMs = 0;
-  if (!haveAnyBoardStatus() &&
+  if (!millenniumIsConnected()) return;
+  const auto action = linkWatchdog.poll(millis());
+  if (action == MillenniumLinkWatchdog::Action::Disconnect) {
+    if (recoveryRequested &&
+        static_cast<uint32_t>(millis() - lastRecoveryAttemptMs) < 1000) return;
+    recoveryRequested = true;
+    lastRecoveryAttemptMs = millis();
+    Serial.println(linkWatchdog.writeFailedRepeatedly()
+        ? "[MILLENNIUM] repeated BLE write failures; disconnecting for recovery"
+        : "[MILLENNIUM] two status probes unanswered; disconnecting for recovery");
+    // Let NimBLE complete the disconnect before the shared scan is allowed.
+    // If termination fails, retry at most once per second, never fake offline.
+    bleClient->disconnect();
+    return;
+  }
+  if (action == MillenniumLinkWatchdog::Action::Probe) {
+    Serial.println("[MILLENNIUM] no protocol response; probing status with S");
+    requestBoardStatus();
+    lastStatusRequestAttemptMs = millis();
+    return;
+  }
+  if (!haveConnectionStatus &&
       static_cast<uint32_t>(millis() - lastStatusRequestAttemptMs) >= 2000) {
     requestBoardStatus();
     lastStatusRequestAttemptMs = millis();
+    return;
   }
+  transmitQueuedFrame();
 }

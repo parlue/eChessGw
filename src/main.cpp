@@ -2,6 +2,7 @@
 #include <NimBLEDevice.h>
 
 #include <algorithm>
+#include <atomic>
 
 #include "board_driver.h"
 #include "chesslink_server.h"
@@ -11,6 +12,9 @@
 #include "ichessone_board.h"
 #include "millennium_board.h"
 #include "pgn_recorder.h"
+#ifdef CHESSLINK_ENABLE_CERTABO
+#include "certabo_board.h"
+#endif
 
 namespace {
 
@@ -81,7 +85,13 @@ bool ledsAwaitingClear = false;
 
 uint32_t lastConnectAttemptMs = 0;
 BoardType activeBoardType = BoardType::Unknown;
-volatile bool connectInProgress = false;
+std::atomic<bool> connectInProgress{false};
+std::atomic<bool> connectFinished{false};
+bool connectSucceeded = false;
+BoardType sessionBoardType = BoardType::Unknown;
+NimBLEAddress sessionBoardAddress;
+bool compareReconnectedPosition = false;
+uint8_t preReconnectStatus[kModeBStatusFrameLength] = {};
 
 // --- BT-BT mode: dual-BLE operation when no cable-side host is present ----
 //
@@ -156,16 +166,22 @@ void statusLedTask(void*) {
 }
 
 bool anyBoardConnected() {
+  if (connectInProgress.load()) return false;
   switch (activeBoardType) {
     case BoardType::Millennium: return millenniumIsConnected();
     case BoardType::Chessnut: return chessnutIsConnected();
     case BoardType::Cynus: return cynusIsConnected();
     case BoardType::IChessOne: return ichessoneIsConnected();
+#ifdef CHESSLINK_ENABLE_CERTABO
+    case BoardType::Certabo: return certaboIsConnected();
+#endif
     default: return false;
   }
 }
 
-void clearActiveBoardLeds() { clearBoardLeds(activeBoardType); }
+void clearActiveBoardLeds() {
+  if (anyBoardConnected()) clearBoardLeds(activeBoardType);
+}
 
 struct KnownBoard {
   const char* name;
@@ -178,6 +194,9 @@ const KnownBoard kKnownBoards[] = {
     {kChessnutBoardNameAlt, BoardType::Chessnut},
     {kCynusBoardName, BoardType::Cynus},
     {kIChessOneBoardName, BoardType::IChessOne},
+#ifdef CHESSLINK_ENABLE_CERTABO
+    {kCertaboBoardName, BoardType::Certabo},
+#endif
 };
 
 // Case-insensitive substring search -- BLE devices vary the exact advertised
@@ -199,8 +218,28 @@ bool scanForKnownBoard(NimBLEAddress& address, BoardType& type) {
 
   for (int i = 0; i < results.getCount(); ++i) {
     const NimBLEAdvertisedDevice* device = results.getDevice(i);
+    // Keep the selected driver/protocol, not a fixed BLE address. Android
+    // peripherals can change addresses. Still recognize the last successful
+    // peer without a name; every candidate goes through driver GATT checks.
+    if (sessionBoardType != BoardType::Unknown &&
+        !(device->getAddress() != sessionBoardAddress)) {
+      address = sessionBoardAddress;
+      type = sessionBoardType;
+      Serial.printf("[RECONNECT] session board found: %s\r\n", address.toString().c_str());
+      scan->clearResults();
+      return true;
+    }
+    // ChessLink emulators need not use the Millennium device name.
+    if (sessionBoardType == BoardType::Millennium &&
+        device->isAdvertisingService(NimBLEUUID("49535343-fe7d-4ae5-8fa9-9fafd205e455"))) {
+      address = device->getAddress();
+      type = sessionBoardType;
+      scan->clearResults();
+      return true;
+    }
     if (!device->haveName()) continue;
     for (const KnownBoard& known : kKnownBoards) {
+      if (sessionBoardType != BoardType::Unknown && known.type != sessionBoardType) continue;
       if (containsCaseInsensitive(device->getName(), known.name)) {
         address = device->getAddress();
         type = known.type;
@@ -227,10 +266,35 @@ bool connectToBoard() {
                           : (type == BoardType::Chessnut) ? chessnutConnect(address)
                           : (type == BoardType::Cynus)    ? cynusConnect(address)
                           : (type == BoardType::IChessOne) ? ichessoneConnect(address)
+#ifdef CHESSLINK_ENABLE_CERTABO
+                          : (type == BoardType::Certabo) ? certaboConnect(address)
+#endif
                                                            : false;
   if (!connected) return false;
 
-  activeBoardType = type;
+  if (sessionBoardType == BoardType::Unknown) {
+    sessionBoardType = type;
+    Serial.println("[SESSION] board protocol locked until reboot; peer address may change");
+  }
+  sessionBoardAddress = address;
+  Serial.printf("[SESSION] connected peer: %s (addr type %d)\r\n",
+                address.toString().c_str(), address.getType());
+  return true;
+}
+
+// Commit on loop(), after the worker publishes completion. No polling or
+// host commands may enter a driver while its GATT setup is still running.
+void finishConnectAttempt() {
+  if (!connectFinished.exchange(false)) return;
+  if (!connectSucceeded) {
+    connectInProgress.store(false);
+    return;
+  }
+  if (haveCachedBoardStatus) {
+    memcpy(preReconnectStatus, cachedBoardStatus, sizeof(preReconnectStatus));
+    compareReconnectedPosition = true;
+  }
+  activeBoardType = sessionBoardType;
   ledState = LedState::Connected;
   haveCachedBoardStatus = false;
   haveSentStatusToKing = false;
@@ -238,18 +302,13 @@ bool connectToBoard() {
   ledsAwaitingClear = false;
   lastCableStatusSendMs = millis();
   autonomousStatusIntervalMs = kFallbackAutoReportIntervalMs;
-  return true;
+  connectInProgress.store(false);
 }
 
-// The underlying BLE library's connect() call has no internal timeout and
-// can block forever if a peer accepts the link at the radio level but never
-// completes the GATT-open handshake (observed with some non-Millennium
-// boards). Running each attempt on its own task keeps a stuck connect from
-// freezing King's cable-facing loop() -- the one board interface that must
-// never be affected by anything on the BLE side.
+// Scan and GATT setup can take seconds; keep the cable-facing loop alive.
 void connectTask(void*) {
-  connectToBoard();
-  connectInProgress = false;
+  connectSucceeded = connectToBoard();
+  connectFinished.store(true);
   vTaskDelete(nullptr);
 }
 
@@ -259,6 +318,7 @@ void connectTask(void*) {
 // square SET differs between the "ready" and "confirmed" stages, not the
 // board type); Cynus has no LEDs, so it shows the given text instead.
 void showBtBtSignal(const uint8_t* squares, size_t count, const char* cynusText) {
+  if (!anyBoardConnected()) return;
   switch (activeBoardType) {
     case BoardType::Millennium: {
       uint8_t frame[kFrameBufferSize] = {};
@@ -280,6 +340,15 @@ void showBtBtSignal(const uint8_t* squares, size_t count, const char* cynusText)
     case BoardType::Cynus:
       cynusShowText(cynusText);
       break;
+#ifdef CHESSLINK_ENABLE_CERTABO
+    case BoardType::Certabo: {
+      SquareHighlight highlights[4];
+      const size_t size = std::min(count, size_t(4));
+      for (size_t i = 0; i < size; ++i) highlights[i] = {squares[i], SquareHighlightRole::Generic};
+      certaboSetHighlightedSquares(highlights, size);
+      break;
+    }
+#endif
     case BoardType::IChessOne: {
       SquareHighlight highlights[4];
       for (size_t i = 0; i < count && i < 4; ++i) {
@@ -590,11 +659,11 @@ void receiveFromMillenniumComputer() {
           // (chesslink_server.cpp) so King/Phoenix on the cable and
           // external ChessLink software over BLE get identical per-board
           // LED handling -- see dispatchLedFrameToBoard()'s own comment.
-          dispatchLedFrameToBoard(activeBoardType, uartFrame);
+          if (anyBoardConnected()) dispatchLedFrameToBoard(activeBoardType, uartFrame);
         } else if (activeBoardType == BoardType::Millennium) {
           // King never sends non-'L' commands in practice, but relay
           // anything else unchanged too, exactly as always.
-          millenniumRelayCommand(uartFrame, expected);
+          if (anyBoardConnected()) millenniumRelayCommand(uartFrame, expected);
         } else {
           // Chessnut/Cynus have no real Mode-B peer to relay to/from -- see
           // handleNonMillenniumCableCommand()'s own comment for why this
@@ -637,7 +706,9 @@ bool haveAnyBoardStatus() { return haveCachedBoardStatus; }
 
 const uint8_t* cachedBoardStatusBytes() { return haveCachedBoardStatus ? cachedBoardStatus : nullptr; }
 
-BoardType currentBoardType() { return activeBoardType; }
+BoardType currentBoardType() {
+  return connectInProgress.load() ? BoardType::Unknown : activeBoardType;
+}
 
 uint32_t autonomousStatusIntervalMs = kFallbackAutoReportIntervalMs;
 bool cableHostUsesEncodedChecksum = false;
@@ -683,6 +754,15 @@ void logHumanReadableFen(const uint8_t frame[kModeBStatusFrameLength]) {
 }
 
 void onBoardStatusFrame(const uint8_t frame[kModeBStatusFrameLength]) {
+  if (compareReconnectedPosition) {
+    unsigned changedSquares = 0;
+    for (size_t i = 1; i <= 64; ++i) {
+      if (preReconnectStatus[i] != frame[i]) ++changedSquares;
+    }
+    Serial.printf("[RECONNECT] fresh position: %u changed square(s) since disconnect\r\n",
+                  changedSquares);
+    compareReconnectedPosition = false;
+  }
   if (!haveLoggedStatus || memcmp(lastLoggedStatus, frame, kModeBStatusFrameLength) != 0) {
     memcpy(lastLoggedStatus, frame, kModeBStatusFrameLength);
     haveLoggedStatus = true;
@@ -817,6 +897,7 @@ void setup() {
 }
 
 void loop() {
+  finishConnectAttempt();
   if (verboseCableLogArmed && static_cast<int32_t>(millis() - verboseCableLogUntilMs) >= 0) {
     verboseCableLogArmed = false;
     dumpVerboseCableLog();
@@ -842,6 +923,9 @@ void loop() {
       case BoardType::Chessnut: chessnutPoll(); break;
       case BoardType::Cynus: cynusPoll(); break;
       case BoardType::IChessOne: ichessonePoll(); break;
+#ifdef CHESSLINK_ENABLE_CERTABO
+      case BoardType::Certabo: certaboPoll(); break;
+#endif
       default: break;
     }
 
@@ -914,7 +998,10 @@ void loop() {
       static_cast<uint32_t>(nowMs - lastConnectAttemptMs) >= kReconnectIntervalMs) {
     lastConnectAttemptMs = nowMs;
     connectInProgress = true;
-    xTaskCreate(connectTask, "board-connect", 8192, nullptr, 1, nullptr);
+    if (xTaskCreate(connectTask, "board-connect", 8192, nullptr, 1, nullptr) != pdPASS) {
+      connectInProgress.store(false);
+      Serial.println("[RECONNECT] could not create connection task; will retry");
+    }
   }
 
   static uint32_t lastStatusMs = 0;
@@ -925,6 +1012,9 @@ void loop() {
                   : activeBoardType == BoardType::Chessnut  ? "chessnut"
                   : activeBoardType == BoardType::Cynus     ? "cynus"
                   : activeBoardType == BoardType::IChessOne ? "ichessone"
+#ifdef CHESSLINK_ENABLE_CERTABO
+                  : activeBoardType == BoardType::Certabo ? "certabo"
+#endif
                                                              : "none",
                   static_cast<unsigned long>(rawUartRxBytes),
                   static_cast<unsigned long>(discardedUartRxBytes),

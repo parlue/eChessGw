@@ -1,6 +1,6 @@
 {
   "name": "eChessGw",
-  "version": "v8 (bidirectional ChessLink/Chessnut GATT bridge; fixed outgoing ChessLink status-frame checksum)",
+  "version": "v9 (BLE link-health watchdog: probes a quiet connection and recovers a stuck link instead of hanging silently)",
   "new_install_prompt_erase": true,
   "builds": [
     {

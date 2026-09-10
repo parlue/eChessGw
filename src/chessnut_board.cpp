@@ -27,6 +27,7 @@ QueueHandle_t miscDataQueue = nullptr;
 
 uint8_t lastRawBoardData[32] = {};
 bool haveLastRawBoardData = false;
+uint32_t lastInitialStatusRequestMs = 0;
 
 // Local "show whatever currently differs from the last settled position"
 // LED fallback -- added 2026-08-31 at the user's explicit direction, after
@@ -224,6 +225,11 @@ bool chessnutConnect(const NimBLEAddress& address) {
   }
   if (boardDataQueue == nullptr) boardDataQueue = xQueueCreate(16, sizeof(RawPacket));
   if (miscDataQueue == nullptr) miscDataQueue = xQueueCreate(16, sizeof(RawPacket));
+  if (boardDataQueue == nullptr || miscDataQueue == nullptr) return false;
+  // The previous connection is closed and the main loop is gated during
+  // setup. Discard old notifications before subscribing to the new link.
+  xQueueReset(boardDataQueue);
+  xQueueReset(miscDataQueue);
 
   // Request a fast connection interval before connecting, matching
   // millennium_board.cpp's own client-side setConnectionParams() -- added
@@ -278,8 +284,13 @@ bool chessnutConnect(const NimBLEAddress& address) {
   ledSettlePending = false;
 
   static constexpr uint8_t initCommand[] = {0x21, 0x01, 0x00};
-  writeChar->writeValue(initCommand, sizeof(initCommand), true);
-  return true;
+  if (writeChar == nullptr || !writeChar->writeValue(initCommand, sizeof(initCommand), true)) {
+    Serial.println("[CHESSNUT] real-time initialization failed; retrying connection");
+    bleClient->disconnect();
+    return false;
+  }
+  lastInitialStatusRequestMs = millis();
+  return chessnutIsConnected();
 }
 
 void chessnutSetHighlightedSquares(const SquareHighlight* squares, size_t count) {
@@ -311,6 +322,19 @@ void chessnutPoll() {
   }
   while (xQueueReceive(miscDataQueue, &packet, 0) == pdTRUE) {
     handleMiscPacket(packet.data, packet.length);
+  }
+
+  // Retry only until this connection delivers its first position. A board
+  // that missed initialization must not require moving a piece to recover.
+  if (!haveLastRawBoardData && chessnutIsConnected() &&
+      static_cast<uint32_t>(millis() - lastInitialStatusRequestMs) >= 2000) {
+    static constexpr uint8_t initCommand[] = {0x21, 0x01, 0x00};
+    lastInitialStatusRequestMs = millis();
+    Serial.println("[CHESSNUT] waiting for fresh position; retrying real-time request");
+    if (!writeChar->writeValue(initCommand, sizeof(initCommand), true)) {
+      bleClient->disconnect();
+      return;
+    }
   }
 
   // Once nothing has changed for kLedSettleMs, decide whether to accept the

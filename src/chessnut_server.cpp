@@ -11,6 +11,9 @@
 #include "cynus_board.h"
 #include "ichessone_board.h"
 #include "millennium_board.h"
+#ifdef CHESSLINK_ENABLE_CERTABO
+#include "certabo_board.h"
+#endif
 #include "pgn_recorder.h"
 
 // Ported from gkalab/cer2nut (https://github.com/gkalab/cer2nut, read
@@ -403,6 +406,11 @@ void relayLedCommandToBoard(const uint8_t bytes8[8]) {
     case BoardType::IChessOne:
       ichessoneSetHighlightedSquares(highlights, count);
       break;
+#ifdef CHESSLINK_ENABLE_CERTABO
+    case BoardType::Certabo:
+      certaboSetHighlightedSquares(highlights, count);
+      break;
+#endif
     case BoardType::Cynus:
       // Cynus has no per-square LEDs of its own -- forwarded instead to
       // command its robot arm to execute the move, for normal human-vs-
