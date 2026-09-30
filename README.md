@@ -71,10 +71,21 @@ the same robot that this gateway's ManyaCynus support is ported from.
 
   | Black King square | Function |
   |---|---|
-  | e5 / e6 | Sound off / on |
-  | h5 / h6 | Board-orientation flip on / off |
-  | d5 / d6 | Free Analysis mode on / off |
+  | b5 / b6 | Board-orientation flip on / off |
   | c5 / c6 | Set Position mode on / off |
+  | d5 / d6 | Free Analysis mode on / off |
+  | e5 / e6 | Sound off / on |
+
+  Board-orientation flip is now **only** ever set this way -- there is no
+  automatic "the scan looks flipped, so flip must be on" detection any
+  more. That heuristic broke as soon as software could drive both colors
+  of a game over the LED channel with no scan at all (a pure PGN/game
+  replay): a first move relayed by the software has no fixed relationship
+  to which color is actually being replayed, and a genuinely flipped
+  ManyaCynus can still report a normal-looking scan anyway (its own
+  scanning layer compensates), so pattern-matching a scan was never a
+  reliable signal either way. Flip the board manually with the gesture
+  above if you need it.
 
 - **Free Analysis mode**: while active, every scanned position is forwarded
   to the chess computer as-is, without checking it's a legal move -- the
@@ -310,7 +321,8 @@ client compatibility list.
 | v6.6 | Fix: a connected Chessnut app's move commands were silently ignored on ManyaCynus during live play (Chess Dojo confirmed affected) -- now decoded and sent to the robot arm |
 | v6.7 | Fix: the same Chessnut highlight command is also used by a connected app to echo a move it just saw the human make by hand -- confirmed on real hardware to make ManyaCynus's robot arm re-grab and disturb a piece the human had already placed correctly (a king, right after a hand-played castling). Now recognized and ignored (it's textually identical to the human move the gateway itself just detected) instead of re-executed, so the robot only ever moves for the computer's own side; also inactive while Free Analysis or Set Position is active. Separately: two BLE masquerade services (ChessLink and Chessnut) were both always connectable regardless of which one was actually selected, which could route a client to the wrong one and explain total silence -- the non-selected one now rejects connections outright instead |
 | v6.8 | Fix: in standalone BLE ChessLink masquerade mode, the board-status frame sent to a connected app (e.g. BearChess) was relayed in the cable module's own wire orientation (rotated 180 degrees) instead of plain board order, so the app never received a correct position; also adds a 1s connection health-check watchdog that restarts advertising if it goes stale |
-| v6.9 (current) | Renamed the project to eChessGw (was BluetoothMax) and switched all documentation/UI text from "Bluetooth" to "BLE" to avoid any Bluetooth SIG trademark conflict -- no functional change to the protocol or hardware support. Also removed an unjustified BLE MTU request (128, never actually required by any supported client) |
+| v6.9 | Renamed the project to eChessGw (was BluetoothMax) and switched all documentation/UI text from "Bluetooth" to "BLE" to avoid any Bluetooth SIG trademark conflict -- no functional change to the protocol or hardware support. Also removed an unjustified BLE MTU request (128, never actually required by any supported client) |
+| v9.3 (current) | ManyaCynus: pure software-driven game replay over the ChessLink BLE masquerade (e.g. Chess PGN Master stepping through a loaded game, with no human ever scanning a move) now works end-to-end. Fixed 3 related issues, each scoped so the King/Phoenix cable path and BearChess are provably unaffected: (1) BLE app clients (Chess Dojo, Chess PGN Master) encode the LED move-highlight grid 180 degrees rotated relative to real King/Phoenix cable hardware, despite the identical wire format -- confirmed via a real Chess Dojo game (outgoing status reached it correctly oriented, but its own move highlights decoded mirrored, e.g. e2-e4 arriving as d7-d5); corrected only at the BLE entry point, never inside the shared decoder; (2) the LED-channel move decoder now tracks the actually-alternating side to move instead of a single game-long fixed color whenever no human has scanned a move yet this game, matching the fix already used for Chessnut replay -- both colors arriving over the same channel used to get silently dropped or rejected every other move; (3) removed the automatic "the scan looks flipped, so flip must be on" heuristic entirely (it assumed a move arriving over the LED channel before any scan always meant the software plays White, which stopped holding once software could drive both colors) -- board orientation now comes only from the manual black-King gesture, moved to b5/b6 (see the option table above) |
 
 ## Components
 

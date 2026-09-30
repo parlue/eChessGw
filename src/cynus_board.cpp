@@ -47,8 +47,8 @@ constexpr char kFlippedStartFen[] = "RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr
 // CynusLink already proved works against real King/Phoenix units.
 constexpr char kSoundOffFen[] = "rnbq1bnr/pppppppp/8/4k3/8/8/PPPPPPPP/RNBQKBNR";
 constexpr char kSoundOnFen[] = "rnbq1bnr/pppppppp/4k3/8/8/8/PPPPPPPP/RNBQKBNR";
-constexpr char kFlipOnFen[] = "rnbq1bnr/pppppppp/8/7k/8/8/PPPPPPPP/RNBQKBNR";
-constexpr char kFlipOffFen[] = "rnbq1bnr/pppppppp/7k/8/8/8/PPPPPPPP/RNBQKBNR";
+constexpr char kFlipOnFen[] = "rnbq1bnr/pppppppp/8/1k6/8/8/PPPPPPPP/RNBQKBNR";
+constexpr char kFlipOffFen[] = "rnbq1bnr/pppppppp/1k6/8/8/8/PPPPPPPP/RNBQKBNR";
 constexpr char kAnalysisOnFen[] = "rnbq1bnr/pppppppp/8/3k4/8/8/PPPPPPPP/RNBQKBNR";
 constexpr char kAnalysisOffFen[] = "rnbq1bnr/pppppppp/3k4/8/8/8/PPPPPPPP/RNBQKBNR";
 constexpr char kSetPositionOnFen[] = "rnbq1bnr/pppppppp/8/2k5/8/8/PPPPPPPP/RNBQKBNR";
@@ -83,6 +83,29 @@ void setMoveCycle(MoveCycle cycle) {
   Serial.printf("[CYNUS MOVE] -> %s\r\n", moveCycleName(moveCycle));
 }
 
+// The chess computer/software may command Cynus's robot to make a move any
+// time it isn't literally still executing (and thus mid-confirmation of) a
+// previous one -- deliberately NOT gated on WaitEngineMove specifically, so
+// a move can land even without a preceding scanned human move. This is what
+// lets a pure software-vs-software replay (built from a "setup: FEN"
+// position, then commanded moves for BOTH sides in turn, never touching the
+// physical scan channel at all) work through the exact same path as
+// ordinary human-vs-computer play, with no separate mode. User's own
+// explicit design, 2026-09-29: "wir brauchen keinen neuen Modus sondern
+// brauchen ein 'so oder so'... wir müssen zwei Kanäle beobachten... und
+// einfach reagieren wenn auf einer Seite was passiert" -- the scan channel
+// (a human physically moving a piece) and the engine channel (a software
+// move command) are independent and both always open, except while the
+// robot arm is physically busy executing the previous move. The scan
+// channel's own gating (handleFenLine()'s WaitEngineMove branch) is
+// deliberately left as-is -- it still protects ordinary human-vs-computer
+// play from a stray scan being misread while genuinely awaiting the
+// engine's reply, and is simply never exercised at all during a pure
+// software replay (no human ever touches the board in that case).
+bool engineMayMoveNow() {
+  return syncState == SyncState::Ready && moveCycle != MoveCycle::WaitRobotPosition;
+}
+
 // Which side King/Phoenix is playing -- learned either from who moves first
 // (a human move forwarded while still WaitFirstMove locks it to Black; a
 // decoded engine LED suggestion while WaitFirstMove locks it to White) or,
@@ -92,10 +115,29 @@ enum class EngineSide { Unknown, White, Black };
 EngineSide engineSide = EngineSide::Unknown;
 bool firstMoveOrientationLocked = false;
 
+// Which color actually moves next -- unlike engineSide (a game-long FIXED
+// color from the human-vs-computer model), this flips after every single
+// committed move, regardless of source (cable/Phoenix or a Chessnut-
+// protocol client's highlight command) -- see commitMoveToRobot(). Chess
+// always starts with White to move, so this needs no "Unknown" bootstrap
+// state the way engineSide does. Used only by resolveAlternatingPair()'s
+// Chessnut/PGN-replay call site to disambiguate a capture; the King/Phoenix
+// call site still uses engineSide, untouched.
+EngineSide sideToMoveNow = EngineSide::White;
+
 enum class ExperimentalMode { None, FreeAnalysis, SetPosition };
 ExperimentalMode experimentalMode = ExperimentalMode::None;
 bool setPositionManualScanExpected = false;
 uint32_t nextFreeAnalysisScanAt = 0;
+
+// Set right after sending "setup: <FEN>\n" (new firmware capability,
+// 2026-09-26 protocol notes) -- the next line Cynus sends back is either a
+// "fen:" line confirming the robot arm physically built the position
+// (accepted exactly like a freshly scanned position, via
+// acceptScannedPosition()) or a plain "illegal FEN" text line if the string
+// was rejected. Lets a puzzle/endgame position be set up directly instead
+// of only ever starting from the standard setup and replaying moves onto it.
+bool setupPositionPending = false;
 
 // Set while the BT-BT masquerade queen gesture's extra queen is still on
 // the board, so that once it's removed again, the resulting exact-match-
@@ -194,6 +236,45 @@ bool sendCynus(const std::string& line) {
 // Cynus's own display (move made, config change, scan error, ...).
 void cynusDisplay(const std::string& text) {
   sendCynus("display txt " + text.substr(0, 7) + "\n");
+}
+
+// New Cynus firmware (2026-09-29) appends the piece-storage "parking spots"
+// (left/right of the board, per the user's own description) directly onto
+// every "fen:"/"left:"/"right:" line Cynus sends -- confirmed real-hardware,
+// e.g. a fully empty board+storage now arrives as "9/9/9/9/9/9/9/9/9/9" (10
+// fields) instead of the old plain 8-rank board FEN, and even the digit '9'
+// itself is invalid in classic FEN (max run-length per rank is 8). The exact
+// new field layout isn't pinned down yet (not enough real-hardware data with
+// actual pieces to disambiguate "10 whole ranks" vs. "8 ranks each 9
+// squares wide" vs. something else) and doesn't matter for now -- explicit
+// user instruction: "Wo was steht interessiert uns nochnicht. Also einen
+// substring machen" (we don't care where what is yet, just substring it
+// out). This keeps only the first 8 "/"-delimited fields and clamps any
+// single-digit empty-run above '8' back down to '8', which reconstructs a
+// correct plain 8x8 board for the empty-board case that's actually been
+// observed so far (either theory above degrades to "8/8/8/8/8/8/8/8" for an
+// all-empty board), unblocking syncState (stuck at WaitingForStartPosition
+// with every real fen line rejected outright) so a fresh scan can even
+// happen again. NOT yet verified correct once real pieces are on the board
+// -- revisit once a real-hardware capture with pieces confirms the actual
+// field layout, per fenPlacementToBoard()'s own todo.
+std::string stripCynusStorageFields(const std::string& fen) {
+  std::string result;
+  int fieldsKept = 0;
+  size_t pos = 0;
+  while (fieldsKept < 8) {
+    size_t slash = fen.find('/', pos);
+    std::string field = (slash == std::string::npos) ? fen.substr(pos) : fen.substr(pos, slash - pos);
+    for (char& c : field) {
+      if (c > '8' && c <= '9') c = '8';
+    }
+    if (fieldsKept > 0) result += '/';
+    result += field;
+    ++fieldsKept;
+    if (slash == std::string::npos) break;
+    pos = slash + 1;
+  }
+  return result;
 }
 
 // Parses a FEN's placement field (ignores anything after the first space)
@@ -678,6 +759,7 @@ void acceptScannedPosition(const char scanned[65]) {
   memcpy(board64, scanned, sizeof(board64));
   syncState = SyncState::Ready;
   engineSide = EngineSide::Unknown;
+  sideToMoveNow = EngineSide::White;
   firstMoveOrientationLocked = false;
   setMoveCycle(MoveCycle::WaitFirstMove);
   cynusDisplay("POS OK");
@@ -726,8 +808,8 @@ bool handleManualOverrideScan(const char scanned[65]) {
 }
 
 void handleStartupBoard(const char scanned[65]) {
-  char normal[65], flipped[65];
-  if (!fenPlacementToBoard(kStartFen, normal) || !fenPlacementToBoard(kFlippedStartFen, flipped)) return;
+  char normal[65];
+  if (!fenPlacementToBoard(kStartFen, normal)) return;
 
   if (boardsEqual(scanned, normal)) {
     sendCynus("set flip board off\n");
@@ -735,12 +817,14 @@ void handleStartupBoard(const char scanned[65]) {
     acceptScannedPosition(scanned);
     return;
   }
-  if (boardsEqual(scanned, flipped)) {
-    sendCynus("set flip board on\n");
-    Serial.println("[CYNUS] startup position OK (flipped orientation)");
-    acceptScannedPosition(scanned);
-    return;
-  }
+  // No automatic "scan looks flipped -> send flip on" branch here anymore
+  // (removed 2026-09-30, decided the day before): flip must only ever come
+  // from the explicit black-king gesture (b5/b6, see kFlipOnFen/
+  // kFlipOffFen), never inferred from a scan pattern match. A genuinely
+  // flipped Cynus can still report a normal-looking FEN (its own scanning
+  // layer compensates), so matching against a "flipped" pattern here was
+  // never a reliable signal anyway -- and matching it triggered an
+  // unwanted auto flip-on unrelated to anything the user asked for.
   if (handleManualOverrideScan(scanned)) return;
 
   Serial.println("[CYNUS] startup position not yet a valid start position; "
@@ -785,6 +869,12 @@ void commitMoveToRobot(const std::string& uci) {
   Serial.printf("[CYNUS] move accepted: %s\r\n", uci.c_str());
   sendCynus("move " + uci + "\n");
   setMoveCycle(MoveCycle::WaitRobotPosition);
+  // Turns strictly alternate regardless of source -- flip unconditionally
+  // every time a move actually commits here (the shared choke-point for
+  // both the King/Phoenix and Chessnut/PGN-replay paths). See
+  // sideToMoveNow's own comment for why this exists separately from
+  // engineSide.
+  sideToMoveNow = (sideToMoveNow == EngineSide::Black) ? EngineSide::White : EngineSide::Black;
 }
 
 // --- Single-square-per-frame handling (Mephisto Phoenix only) -------------
@@ -843,7 +933,11 @@ EngineSide sideOfPieceChar(char p) {
 // Resolves which of the two alternating squares is the source (has the
 // moving piece) and which is the destination, using board64 occupancy --
 // same logic as extractMoveFromLCommand()'s occA!=occB / capture handling.
-bool resolveAlternatingPair(int a, int b, int& source, int& destination) {
+// sideHint is only consulted for a CAPTURE (both squares occupied), to pick
+// which direction is "the side actually to move" -- callers pass whatever
+// concept of "whose move is this" is right for their own input source; see
+// each call site's own comment.
+bool resolveAlternatingPair(int a, int b, int& source, int& destination, EngineSide sideHint) {
   const char pieceA = board64[a], pieceB = board64[b];
   const bool occA = pieceA != '.', occB = pieceB != '.';
   if (occA != occB) {
@@ -854,10 +948,10 @@ bool resolveAlternatingPair(int a, int b, int& source, int& destination) {
   if (!occA && !occB) return false;  // both empty -- nonsensical, wait for a change
   // Both occupied (a capture): try both directions, keeping whichever is a
   // plausible move for the side actually to move.
-  const bool aToB = plausibleBoardMove(board64, a, b, engineSide) &&
-                     (engineSide == EngineSide::Unknown || sideOfPieceChar(pieceA) == engineSide);
-  const bool bToA = plausibleBoardMove(board64, b, a, engineSide) &&
-                     (engineSide == EngineSide::Unknown || sideOfPieceChar(pieceB) == engineSide);
+  const bool aToB = plausibleBoardMove(board64, a, b, sideHint) &&
+                     (sideHint == EngineSide::Unknown || sideOfPieceChar(pieceA) == sideHint);
+  const bool bToA = plausibleBoardMove(board64, b, a, sideHint) &&
+                     (sideHint == EngineSide::Unknown || sideOfPieceChar(pieceB) == sideHint);
   if (aToB == bToA) return false;  // ambiguous or neither -- wait for a change
   source = aToB ? a : b;
   destination = aToB ? b : a;
@@ -892,7 +986,11 @@ void handleSingleSquareFrame() {
   if (static_cast<int32_t>(millis() - alternatingPairStableSince) < static_cast<int32_t>(kLedMoveStableMs)) return;
 
   int source = -1, destination = -1;
-  if (!resolveAlternatingPair(alternatingSquareA, alternatingSquareB, source, destination)) {
+  // King/Phoenix path: unchanged, still uses the game-long fixed engineSide
+  // (proven-working human-vs-computer behavior, untouched by the new
+  // per-move sideToMoveNow tracking added for the Chessnut/PGN-replay path
+  // below -- see that call site's own comment).
+  if (!resolveAlternatingPair(alternatingSquareA, alternatingSquareB, source, destination, engineSide)) {
     return;  // ambiguous for now -- keep waiting, a later change will retry
   }
   if (engineSide == EngineSide::Unknown) engineSide = sideOfPieceChar(board64[source]);
@@ -1053,20 +1151,49 @@ bool extractMoveFromLCommand(std::string& uci) {
     if (p >= 'a' && p <= 'z') return EngineSide::Black;
     return EngineSide::Unknown;
   };
+  // firstMoveOrientationLocked only ever becomes true via a genuine human
+  // scan (lockFirstMoveOrientation(false), see its own call site) now that
+  // the LED-channel's own auto-lock call was removed (2026-09-29 -- see
+  // processPendingLedMove()'s comment). So "not locked yet" means no human
+  // has scanned a move in this game at all: pure software-driven replay
+  // (both colors arriving over this same LED channel), same situation the
+  // Chessnut/PGN-replay path already handles via sideToMoveNow instead of
+  // the game-long fixed engineSide. Once a human's scan locks orientation,
+  // this reverts to the original, unchanged engineSide behavior -- the
+  // proven-working human-vs-computer safety boundary that stops the
+  // connected software from ever suggesting a move for the human's own
+  // side, which sideToMoveNow alone (it just tracks whose turn it
+  // technically is, regardless of who's supposed to be moving) would not
+  // provide.
+  const bool pureReplay = !firstMoveOrientationLocked;
   int source = -1, destination = -1;
   if (occA != occB) {
     source = occA ? a : b;
     destination = occA ? b : a;
     const EngineSide sourceSide = sideOfPiece(board64[source]);
     if (sourceSide == EngineSide::Unknown) return false;
-    if (engineSide != EngineSide::Unknown && sourceSide != engineSide) {
-      Serial.printf("[CYNUS] ignoring LED pattern %s-%s: source side does not match engine side\r\n",
-                    squareName(source % 8, source / 8).c_str(), squareName(destination % 8, destination / 8).c_str());
-      return false;
+    if (pureReplay) {
+      if (sourceSide != sideToMoveNow) {
+        Serial.printf("[CYNUS] ignoring LED pattern %s-%s: source side does not match side to move\r\n",
+                      squareName(source % 8, source / 8).c_str(), squareName(destination % 8, destination / 8).c_str());
+        return false;
+      }
+    } else {
+      if (engineSide != EngineSide::Unknown && sourceSide != engineSide) {
+        Serial.printf("[CYNUS] ignoring LED pattern %s-%s: source side does not match engine side\r\n",
+                      squareName(source % 8, source / 8).c_str(), squareName(destination % 8, destination / 8).c_str());
+        return false;
+      }
+      if (engineSide == EngineSide::Unknown) engineSide = sourceSide;
     }
-    if (engineSide == EngineSide::Unknown) engineSide = sourceSide;
   } else if (occA && occB) {
-    if (engineSide == EngineSide::Unknown) {
+    if (pureReplay) {
+      const bool aIsEngine = sideOfPiece(pieceA) == sideToMoveNow;
+      const bool bIsEngine = sideOfPiece(pieceB) == sideToMoveNow;
+      if (aIsEngine == bIsEngine) return false;
+      source = aIsEngine ? a : b;
+      destination = aIsEngine ? b : a;
+    } else if (engineSide == EngineSide::Unknown) {
       const uint8_t patternA = dominantSquarePattern(a % 8, a / 8);
       const uint8_t patternB = dominantSquarePattern(b % 8, b / 8);
       if (patternA == 0x33 && patternB == 0xCC) {
@@ -1086,7 +1213,8 @@ bool extractMoveFromLCommand(std::string& uci) {
   } else {
     return false;
   }
-  if (!plausibleBoardMove(board64, source, destination, engineSide)) {
+  const EngineSide plausibilitySide = pureReplay ? sideToMoveNow : engineSide;
+  if (!plausibleBoardMove(board64, source, destination, plausibilitySide)) {
     Serial.printf("[CYNUS] ignoring LED pattern %s-%s: not a plausible move for current board\r\n",
                   squareName(source % 8, source / 8).c_str(), squareName(destination % 8, destination / 8).c_str());
     return false;
@@ -1097,21 +1225,23 @@ bool extractMoveFromLCommand(std::string& uci) {
 
 // Only commits a move once moveCycle actually allows it (i.e. it's really
 // King/Phoenix's turn) AND the same candidate has stayed stable for
-// kLedMoveStableMs. Ported as-is from CynusLink's processPendingLedMove().
+// kLedMoveStableMs. Ported as-is from CynusLink's processPendingLedMove(),
+// minus its auto-flip-on-first-move trigger -- removed 2026-09-29: it
+// assumed a move arriving via this channel before any human scan always
+// means "the computer plays White", which broke as soon as software could
+// drive both colors (a BLE ChessLink client relaying only Black's replies
+// for a human playing White entirely off-board sent Black's move first,
+// wrongly flipping a board that was never physically rotated). Orientation
+// is now set only via the existing manual black-king gesture (b5/b6, see
+// kFlipOnFen/kFlipOffFen) -- same as the Chessnut path, which never had
+// this auto-trigger at all.
 void processPendingLedMove() {
   if (pendingLedMove.empty()) return;
-  const bool firstComputerMove = moveCycle == MoveCycle::WaitFirstMove && !firstMoveOrientationLocked;
-  const bool cycleOk = moveCycle == MoveCycle::WaitEngineMove || moveCycle == MoveCycle::WaitFirstMove;
-  if (syncState != SyncState::Ready || !cycleOk) {
+  if (!engineMayMoveNow()) {
     clearPendingLedMove("gateway state changed");
     return;
   }
   if (static_cast<int32_t>(millis() - pendingLedMoveSince) < static_cast<int32_t>(kLedMoveStableMs)) return;
-
-  if (firstComputerMove && !lockFirstMoveOrientation(true)) {
-    pendingLedMoveSince = millis();  // retry next tick rather than dropping the candidate
-    return;
-  }
 
   const std::string uci = pendingLedMove;
   clearPendingLedMove(nullptr);
@@ -1132,6 +1262,7 @@ void leaveFreeAnalysis() {
   nextFreeAnalysisScanAt = 0;
   firstMoveOrientationLocked = true;
   engineSide = EngineSide::Black;
+  sideToMoveNow = EngineSide::White;
   fenPlacementToBoard(kStartFen, board64);
   lastSentMoveUci.clear();
   setMoveCycle(MoveCycle::WaitHumanMove);
@@ -1174,6 +1305,7 @@ void leaveSetPosition(bool accepted, const char acceptedBoard[65]) {
   setPositionManualScanExpected = false;
   firstMoveOrientationLocked = false;
   engineSide = EngineSide::Unknown;
+  sideToMoveNow = EngineSide::White;
   lastSentMoveUci.clear();
   setMoveCycle(MoveCycle::WaitFirstMove);
   if (accepted && acceptedBoard != nullptr) {
@@ -1209,6 +1341,22 @@ void handleFenLine(const std::string& fen) {
   char scanned[65];
   if (!fenPlacementToBoard(fen, scanned)) {
     Serial.printf("[CYNUS] fen line is not a valid 64-square placement, ignored: %s\r\n", fen.c_str());
+    return;
+  }
+
+  if (setupPositionPending) {
+    // Cynus just finished physically building the position WE asked for via
+    // "setup: <FEN>\n" -- accept it exactly like a freshly scanned start
+    // position (same "confirmed position, ready to play" semantics, first
+    // mover determines orientation/engineSide -- works for either side to
+    // move without needing to parse the FEN's own side-to-move field).
+    // Checked ahead of the normal startup/override/experimental-mode
+    // branches below since a puzzle position can legitimately be anything
+    // (not a real start position, kings can be anywhere), which those
+    // branches would otherwise reject or misinterpret.
+    setupPositionPending = false;
+    Serial.println("[CYNUS] setup: FEN accepted; robot built the requested position");
+    acceptScannedPosition(scanned);
     return;
   }
 
@@ -1431,7 +1579,18 @@ void handleLine(const std::string& line) {
     std::string fen = line.substr(4);
     size_t start = fen.find_first_not_of(' ');
     if (start != std::string::npos) fen = fen.substr(start);
-    handleFenLine(fen);
+    handleFenLine(stripCynusStorageFields(fen));
+    return;
+  }
+  if (equalsIgnoreCase(line, "illegal FEN")) {
+    // Reply to our own "setup: <FEN>\n" (see cynusSetupPosition()) when the
+    // string was rejected -- the robot did NOT move, board64/moveCycle stay
+    // exactly as they were before the attempt.
+    if (setupPositionPending) {
+      setupPositionPending = false;
+      Serial.println("[CYNUS] setup: FEN rejected by Cynus as illegal");
+      cynusDisplay("bad FEN");
+    }
     return;
   }
   if (equalsIgnoreCase(line, "get move")) {
@@ -1513,6 +1672,7 @@ void resetConnectionState() {
   syncState = SyncState::WaitingForStartPosition;
   moveCycle = MoveCycle::WaitHumanMove;
   engineSide = EngineSide::Unknown;
+  sideToMoveNow = EngineSide::White;
   firstMoveOrientationLocked = false;
   experimentalMode = ExperimentalMode::None;
   setPositionManualScanExpected = false;
@@ -1616,8 +1776,12 @@ void cynusHandleLedFrame(const uint8_t frame167[167]) {
     ledGrid[i] = static_cast<uint8_t>((hi << 4) | lo);
   }
 
-  const bool cycleOk = moveCycle == MoveCycle::WaitEngineMove || moveCycle == MoveCycle::WaitFirstMove;
-  if (syncState != SyncState::Ready || !cycleOk) {
+  // Was WaitEngineMove/WaitFirstMove only -- silently dropped every LED
+  // frame whenever moveCycle was WaitHumanMove, which is always true right
+  // after a software-driven replay's own move commits (there is no human
+  // scan to ever move it back out of that state in a pure replay). Matches
+  // the engineMayMoveNow() gate processPendingLedMove() already uses.
+  if (!engineMayMoveNow()) {
     clearPendingLedMove("L outside engine wait");
     clearAlternatingPair("L outside engine wait");
     return;
@@ -1696,15 +1860,9 @@ void cynusExecuteHighlightedMove(const SquareHighlight* highlights, size_t count
     Serial.println("[CYNUS] highlighted-move command ignored; an experimental mode is active");
     return;
   }
-  if (syncState != SyncState::Ready ||
-      !(moveCycle == MoveCycle::WaitEngineMove || moveCycle == MoveCycle::WaitFirstMove)) {
-    Serial.println("[CYNUS] highlighted-move command ignored; not currently the chess computer's "
-                    "turn to suggest a move");
-    return;
-  }
-  if (count != 2) {
-    Serial.printf("[CYNUS] highlighted-move command has %u square(s), expected 2 -- ignored\r\n",
-                  static_cast<unsigned>(count));
+  if (!engineMayMoveNow()) {
+    Serial.println("[CYNUS] highlighted-move command ignored; robot arm is still busy with the "
+                    "previous move");
     return;
   }
   // SquareHighlight.squareIndex uses board_driver.h's boardSquareIndex()
@@ -1717,10 +1875,70 @@ void cynusExecuteHighlightedMove(const SquareHighlight* highlights, size_t count
     const int rankTop = 8 - rank;
     return rankTop * 8 + file0;
   };
+  if (count == 4) {
+    // Castling: PGN Master (and presumably other Chessnut-protocol clients)
+    // highlight all 4 squares at once -- king source/destination AND rook
+    // source/destination together -- instead of two separate 2-square
+    // commands. Confirmed real-hardware 2026-09-29 ("das war Rochade"):
+    // previously silently dropped by the count!=2 guard below, so castling
+    // never reached the robot at all. Only the KING's own source/
+    // destination is sent to Cynus as "move <uci>" (e.g. "e1g1") -- same as
+    // every other move, via commitMoveToRobot() -- on the assumption Cynus's
+    // own robot arm moves the rook automatically as part of executing a
+    // recognized king 2-square castling move, the same way a human would
+    // read "move the king two squares" as the instruction to castle.
+    int squares[4];
+    for (int i = 0; i < 4; ++i) squares[i] = toBoard64Index(highlights[i].squareIndex);
+    int kingSquare = -1;
+    for (int sq : squares) {
+      const char piece = board64[sq];
+      if (piece == 'K' || piece == 'k') {
+        if (kingSquare != -1) { kingSquare = -1; break; }  // more than one king -- ambiguous
+        kingSquare = sq;
+      }
+    }
+    std::string castlingUci;
+    if (kingSquare != -1) {
+      const int kingRank = kingSquare / 8;
+      const int kingFile = kingSquare % 8;
+      for (int sq : squares) {
+        if (sq == kingSquare || board64[sq] != '.') continue;  // destination must be empty
+        const int rank = sq / 8;
+        const int file = sq % 8;
+        if (rank == kingRank && (file - kingFile == 2 || kingFile - file == 2)) {
+          castlingUci = squareName(kingFile, kingRank) + squareName(file, kingRank);
+          break;
+        }
+      }
+    }
+    if (castlingUci.empty()) {
+      Serial.println("[CYNUS] highlighted-move command has 4 squares but doesn't look like "
+                      "castling -- ignored");
+      return;
+    }
+    Serial.printf("[CYNUS] highlighted-move command decoded as castling, king move %s -- "
+                  "commanding robot\r\n", castlingUci.c_str());
+    commitMoveToRobot(castlingUci);
+    return;
+  }
+  if (count != 2) {
+    Serial.printf("[CYNUS] highlighted-move command has %u square(s), expected 2 -- ignored\r\n",
+                  static_cast<unsigned>(count));
+    return;
+  }
   const int a = toBoard64Index(highlights[0].squareIndex);
   const int b = toBoard64Index(highlights[1].squareIndex);
   int source = -1, destination = -1;
-  if (!resolveAlternatingPair(a, b, source, destination)) {
+  // NOT engineSide here -- that's a game-long FIXED color from the old
+  // human-vs-computer model ("the engine always plays this one color"),
+  // which doesn't hold when software drives BOTH colors alternately (a pure
+  // replay/puzzle scenario). Confirmed real-hardware 2026-09-29: a capture
+  // (both squares occupied) resolved backwards (exd5 came out as dxe4)
+  // because engineSide had latched onto whichever color happened to send
+  // the first software move, not "whoever's turn it actually is right now".
+  // sideToMoveNow tracks turns properly -- flips after every committed move
+  // via commitMoveToRobot(), regardless of which path committed it.
+  if (!resolveAlternatingPair(a, b, source, destination, sideToMoveNow)) {
     Serial.println("[CYNUS] highlighted-move command source/destination ambiguous "
                     "from current board occupancy -- ignored");
     return;
@@ -1735,6 +1953,36 @@ void cynusExecuteHighlightedMove(const SquareHighlight* highlights, size_t count
   Serial.printf("[CYNUS] highlighted-move command decoded as %s -- commanding robot\r\n",
                 uci.c_str());
   commitMoveToRobot(uci);
+}
+
+// Sends a position directly to Cynus via its "setup: <FEN>\n" command (new
+// firmware capability, 2026-09-26 protocol notes) -- the robot arm builds
+// the position itself instead of requiring a human to physically set it up
+// and scan it in. fenPlacement is just the placement field (e.g.
+// "8/P4K2/2PpnP2/2p5/2N5/p6k/8/8"), no side-to-move/castling/en-passant
+// suffix needed -- whoever moves first once the position is confirmed built
+// determines orientation/engineSide, same as any other fresh position (see
+// acceptScannedPosition()/lockFirstMoveOrientation()). Returns false
+// immediately (nothing sent) if fenPlacement itself isn't even a valid
+// 64-square placement, or an experimental mode is active; Cynus's own
+// "illegal FEN" reply (handleLine()) is the second, asynchronous rejection
+// path for a string that parses fine locally but Cynus itself refuses.
+bool cynusSetupPosition(const std::string& fenPlacement) {
+  if (experimentalMode != ExperimentalMode::None) {
+    Serial.println("[CYNUS] setup: FEN ignored; an experimental mode is active");
+    return false;
+  }
+  char validated[65];
+  if (!fenPlacementToBoard(fenPlacement, validated)) {
+    Serial.printf("[CYNUS] setup: FEN rejected locally, not a valid 64-square placement: %s\r\n",
+                  fenPlacement.c_str());
+    return false;
+  }
+  setupPositionPending = true;
+  sendCynus("setup: " + fenPlacement + "\n");
+  cynusDisplay("setup");
+  Serial.printf("[CYNUS] setup: FEN sent, waiting for Cynus to build it: %s\r\n", fenPlacement.c_str());
+  return true;
 }
 
 void cynusPoll() {

@@ -12,6 +12,8 @@
 // main.cpp), which already handles acks, checksums and framing generically
 // for every board driver.
 
+#include <string>
+
 #include "board_driver.h"
 
 extern const char kCynusBoardName[];  // matched as a "CYNUS-" prefix
@@ -44,3 +46,12 @@ void cynusShowText(const char* text);
 // relies on (only ever executes a genuine new engine move, never a replay
 // of the human's own just-made move).
 void cynusExecuteHighlightedMove(const SquareHighlight* highlights, size_t count);
+
+// Sends a position directly to Cynus via its "setup: <FEN>\n" command (new
+// firmware capability) -- the robot arm builds the position itself, so a
+// puzzle/endgame position can be set up without a human physically doing it
+// and scanning it in. fenPlacement is just the placement field (e.g.
+// "8/P4K2/2PpnP2/2p5/2N5/p6k/8/8"). Returns false immediately if the string
+// isn't a valid 64-square placement or an experimental mode is active;
+// Cynus's own asynchronous "illegal FEN" reply is the second rejection path.
+bool cynusSetupPosition(const std::string& fenPlacement);
