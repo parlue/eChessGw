@@ -12,6 +12,8 @@
 #include "ichessone_board.h"
 #include "millennium_board.h"
 #include "pgn_recorder.h"
+#include "machine_gateway.h"
+#include "newgame_button.h"
 #ifdef CHESSLINK_ENABLE_CERTABO
 #include "certabo_board.h"
 #endif
@@ -229,10 +231,16 @@ bool scanForKnownBoard(NimBLEAddress& address, BoardType& type) {
 }
 
 bool connectToBoard() {
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (!machineGatewayWantsBoard()) return false;
+#endif
   ledState = LedState::Searching;
   NimBLEAddress address;
   BoardType type = BoardType::Unknown;
   if (!scanForKnownBoard(address, type)) return false;
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (!machineGatewayWantsBoard()) return false;
+#endif
 
   const bool connected = (type == BoardType::Millennium) ? millenniumConnect(address)
                           : (type == BoardType::Chessnut) ? chessnutConnect(address)
@@ -243,6 +251,15 @@ bool connectToBoard() {
 #endif
                                                            : false;
   if (!connected) return false;
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (!machineGatewaySelectPhysical()) {
+    // A virtual game started while scan/GATT discovery was in flight.
+    // Never forward packets from a board arriving after that cutoff.
+    NimBLEClient* losingClient = NimBLEDevice::getClientByPeerAddress(address);
+    if (losingClient) losingClient->disconnect();
+    return false;
+  }
+#endif
 
   activeBoardType = type;
   ledState = LedState::Connected;
@@ -516,6 +533,10 @@ void receiveFromMillenniumComputer() {
   while (MillenniumSerial.available() > 0) {
     const uint8_t raw = static_cast<uint8_t>(MillenniumSerial.read());
     ++rawUartRxBytes;
+#ifdef CHESSLINK_ENABLE_MACHINE
+    // Preserve the existing late-cable reboot in standalone mode.
+    if (!cableFallbackArmed) machineGatewayCableActivity();
+#endif
     if (verboseCableLogArmed && verboseCableLogLength < kVerboseCableLogBufferSize) {
       verboseCableLogBuffer[verboseCableLogLength++] = raw;
     }
@@ -550,6 +571,14 @@ void receiveFromMillenniumComputer() {
       if (uartFrameLength < expected) break;
       bool frameUsedEncodedChecksum = false;
       if (modeBValidBlock(uartFrame, expected, &frameUsedEncodedChecksum)) {
+#ifdef CHESSLINK_ENABLE_MACHINE
+        if (machineGatewayActive()) {
+          machineGatewayCommand(uartFrame, expected);
+          uartFrameLength -= expected;
+          memmove(uartFrame, uartFrame + expected, uartFrameLength);
+          return; // Machine owns this command; no physical-board side effects.
+        }
+#endif
         const auto previousConvention = cableStatusPolicy.convention();
         // Use the host's LED frames to enable King timing; short setup
         // commands alone must not enable unsolicited GO reports. Encoded-only
@@ -674,9 +703,14 @@ void receiveFromMillenniumComputer() {
 
 }  // namespace
 
-bool haveAnyBoardStatus() { return haveCachedBoardStatus; }
+bool haveAnyBoardStatus() { return cachedBoardStatusBytes() != nullptr; }
 
-const uint8_t* cachedBoardStatusBytes() { return haveCachedBoardStatus ? cachedBoardStatus : nullptr; }
+const uint8_t* cachedBoardStatusBytes() {
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (machineGatewayActive()) return machineGatewayStatus();
+#endif
+  return haveCachedBoardStatus ? cachedBoardStatus : nullptr;
+}
 
 BoardType currentBoardType() { return activeBoardType; }
 
@@ -684,6 +718,10 @@ uint32_t autonomousStatusIntervalMs = kFallbackAutoReportIntervalMs;
 bool cableHostUsesEncodedChecksum = false;
 
 size_t writeFrameToKing(const uint8_t* logicalFrame, size_t length) {
+#ifdef CHESSLINK_ENABLE_MACHINE
+  // Board-driver replies belong to the physical-board link, not either host.
+  if (machineGatewayActive()) return 0;
+#endif
   // Routes to whichever host transport is actually active -- the King/
   // Phoenix cable (default), or the ChessLink BLE masquerade server once
   // BT-BT mode has started it. The name is historical (this function
@@ -699,6 +737,33 @@ size_t writeFrameToKing(const uint8_t* logicalFrame, size_t length) {
   for (size_t i = 0; i < length; ++i) encoded[i] = encodeOddParity(logicalFrame[i]);
   return MillenniumSerial.write(encoded, length);
 }
+
+#ifdef CHESSLINK_ENABLE_MACHINE
+bool newgameButtonKnownBoard(const NimBLEAdvertisedDevice* device) {
+  if (!device->haveName()) return false;
+  for (const KnownBoard& known : kKnownBoards)
+    if (containsCaseInsensitive(device->getName(), known.name)) return true;
+  return false;
+}
+void machineGatewayStopBoardSearch() {
+  NimBLEDevice::getScan()->stop();
+  // Cancel central initiation only; the software's peripheral link stays up.
+  ble_gap_conn_cancel();
+  for (NimBLEClient* client : NimBLEDevice::getConnectedClients()) client->disconnect();
+}
+void machineGatewayCancelBoardCommand() {
+  if (activeBoardType == BoardType::Cynus) cynusCancelPendingMachineMove();
+  clearBoardLeds(activeBoardType);
+}
+size_t machineGatewayWriteCable(const uint8_t* frame, size_t length) {
+  if (length > kFrameBufferSize) return 0;
+  uint8_t encoded[kFrameBufferSize];
+  for (size_t i = 0; i < length; ++i) encoded[i] = encodeOddParity(frame[i]);
+  const size_t written = MillenniumSerial.write(encoded, length);
+  MillenniumSerial.flush(); // Movement holds start after actual UART completion.
+  return written;
+}
+#endif
 
 void armVerboseCableLog() {
   verboseCableLogLength = 0;
@@ -724,6 +789,9 @@ void logHumanReadableFen(const uint8_t frame[kModeBStatusFrameLength]) {
 }
 
 void onBoardStatusFrame(const uint8_t frame[kModeBStatusFrameLength]) {
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (machineGatewayActive()) { machineGatewayBoardStatus(frame); return; }
+#endif
   if (!haveLoggedStatus || memcmp(lastLoggedStatus, frame, kModeBStatusFrameLength) != 0) {
     memcpy(lastLoggedStatus, frame, kModeBStatusFrameLength);
     haveLoggedStatus = true;
@@ -876,9 +944,47 @@ void loop() {
   }
 
   processBtBtStateMachine();
+#ifdef CHESSLINK_ENABLE_MACHINE
+  machineGatewayServiceSelection();
+  newgameButtonPoll(connectInProgress);
+#endif
   pgnRecorderPoll();
   chesslinkServerPoll();  // no-op until chesslinkServerStart() has run
   chessnutServerPoll();   // no-op until chessnutServerStart() has run
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (machineGatewayActive()) {
+    machineGatewayBoardLink(anyBoardConnected());
+    if (anyBoardConnected()) {
+      switch (activeBoardType) {
+        case BoardType::Millennium: millenniumPoll(); break;
+        case BoardType::Chessnut: chessnutPoll(); break;
+        case BoardType::Cynus: cynusPoll(); break;
+        case BoardType::IChessOne: ichessonePoll(); break;
+#ifdef CHESSLINK_ENABLE_CERTABO
+        case BoardType::Certabo: certaboPoll(); break;
+#endif
+        default: break;
+      }
+    }
+    machineGatewayPoll();
+    if (!machineGatewayWantsBoard() && connectInProgress && !newgameButtonBusy()) {
+      static uint32_t lastCancelAt = 0;
+      if (uint32_t(millis() - lastCancelAt) >= 100) {
+        lastCancelAt = millis();
+        machineGatewayStopBoardSearch();
+      }
+    }
+    if (machineGatewayWantsBoard() && !anyBoardConnected() && !connectInProgress && !newgameButtonBusy() &&
+        uint32_t(millis() - lastConnectAttemptMs) >= kReconnectIntervalMs) {
+      lastConnectAttemptMs = millis();
+      connectInProgress = true;
+      xTaskCreate(connectTask, "board-connect", 8192, nullptr, 1, nullptr);
+    }
+    ledState = chesslinkServerMachineSubscribed() ? LedState::Connected : LedState::Searching;
+    delay(1);
+    return; // Machine owns status/LED routing; bypass the ordinary cable heartbeat.
+  }
+#endif
 
   if (anyBoardConnected()) {
     switch (activeBoardType) {

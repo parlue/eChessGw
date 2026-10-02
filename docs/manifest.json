@@ -1,6 +1,6 @@
 {
   "name": "eChessGw",
-  "version": "v9.3 (ManyaCynus: pure software-driven replay over ChessLink BLE now works end-to-end -- fixed LED-grid orientation for BLE app clients, per-move side-to-move tracking with no human scan, and removed the automatic flip-on heuristic in favor of the manual black-King gesture)",
+  "version": "v10 (Engine-vs-Engine: new machine_gateway subsystem lets two chess computers/apps play each other through the gateway, with a physical board and the New Game button driving the match -- see README for details)",
   "new_install_prompt_erase": true,
   "builds": [
     {

@@ -7,6 +7,7 @@
 
 #include "chessnut_server.h"
 #include "chesslink_status_refresh.h"
+#include "machine_gateway.h"
 
 // Ported from CynusLink's own proven ChessLink-server role (real UUIDs,
 // checksum/register handling, connection tuning) -- see chesslink_server.h.
@@ -208,10 +209,19 @@ void handleFrame(const uint8_t* frame, size_t length) {
       writeFrame(reinterpret_cast<const uint8_t*>("v0100"), 5);
       break;
     case 'X':
+#ifdef CHESSLINK_ENABLE_MACHINE
+      if (machineGatewayActive()) machineGatewaySoftwareClear();
+      else
+#endif
       clearBoardLeds(currentBoardType());
       writeFrame(reinterpret_cast<const uint8_t*>("x"), 1);
       break;
     case 'T':
+#ifdef CHESSLINK_ENABLE_MACHINE
+      // Software-side (e.g. BearChess) T is not a new-game trigger.
+      // This guard does not apply to the independent King cable handler.
+      if (machineGatewayActive()) break;
+#endif
       resetRegisters();
       haveSentStatus = false;
       statusRefresh.reset();
@@ -252,6 +262,12 @@ void handleFrame(const uint8_t* frame, size_t length) {
       // CynusLink's own sendCL("l") and the cable path's instant l6C ack.
       writeFrame(reinterpret_cast<const uint8_t*>("l"), 1);
       if (length != 167) break;
+#ifdef CHESSLINK_ENABLE_MACHINE
+      if (machineGatewayActive()) {
+        machineGatewaySoftwareLed(frame);
+        break; // The machine uses original BLE coordinates, before rotation.
+      }
+#endif
       Serial.println("[CHESSLINK] L frame received from client, dispatching to connected board");
       // BLE app clients (Chess Dojo, PGN Master, ...) encode the 9x9 LED
       // corner grid 180 degrees rotated relative to real King/Phoenix
@@ -304,6 +320,12 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
       if (server != nullptr) server->disconnect(info.getConnHandle());
       return;
     }
+#ifdef CHESSLINK_ENABLE_MACHINE
+    if (!machineGatewayAcceptSoftware()) {
+      if (server) server->disconnect(info.getConnHandle());
+      return;
+    }
+#endif
     connected = true;
     statusRefresh.reset();
     connHandle = info.getConnHandle();
@@ -330,7 +352,11 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
       chessnutServerResetBridgeState();
       bridgedViaChessnut = false;
     }
+#ifdef CHESSLINK_ENABLE_MACHINE
+    if (started) NimBLEDevice::startAdvertising();
+#else
     NimBLEDevice::startAdvertising();
+#endif
   }
 
   // Ported from chessnut_server.cpp's own ServerCallbacks -- this module
@@ -608,3 +634,20 @@ void chesslinkServerHandleExternalWrite(const uint8_t* data, size_t length) {
     offset += packet.length;
   }
 }
+
+#ifdef CHESSLINK_ENABLE_MACHINE
+void chesslinkServerStopMachineOffer() {
+  started = false;
+  NimBLEDevice::stopAdvertising();
+  // GATT services remain allocated; creating/removing them mid-session is unsafe.
+  rxFrameLength = 0;
+  if (rxQueue) xQueueReset(rxQueue);
+  statusRefresh.reset();
+}
+bool chesslinkServerMachineSubscribed() {
+  return (connected && notifyEnabled) || (bridgedViaChessnut && chessnutServerNotifyEnabled());
+}
+bool chesslinkServerMachineStatusSent(const uint8_t frame[67]) {
+  return chesslinkServerMachineSubscribed() && haveSentStatus && memcmp(lastSentStatus, frame, 67) == 0;
+}
+#endif

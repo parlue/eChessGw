@@ -1319,3 +1319,8 @@ size_t pgnRecorderGameFenSequenceByIndex(int index, char* outBuffer, size_t outB
   outBuffer[pos < outBufferSize ? pos : outBufferSize - 1] = '\0';
   return pos;
 }
+
+#ifdef CHESSLINK_ENABLE_MACHINE
+#include "machine/machine.h"
+#include "machine/recorder_adapter.inc"
+#endif

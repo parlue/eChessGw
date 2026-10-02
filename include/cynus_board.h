@@ -55,3 +55,9 @@ void cynusExecuteHighlightedMove(const SquareHighlight* highlights, size_t count
 // isn't a valid 64-square placement or an experimental mode is active;
 // Cynus's own asynchronous "illegal FEN" reply is the second rejection path.
 bool cynusSetupPosition(const std::string& fenPlacement);
+
+#ifdef CHESSLINK_ENABLE_MACHINE
+// Cancel a not-yet-executed LED candidate on an explicit machine New Game.
+// Does not interrupt a robot movement already sent to the hardware.
+void cynusCancelPendingMachineMove();
+#endif

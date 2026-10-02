@@ -1,4 +1,7 @@
 #include "cynus_board.h"
+#ifdef CHESSLINK_ENABLE_MACHINE
+#include "machine_gateway.h"
+#endif
 
 #include <cctype>
 #include <cstdlib>
@@ -227,6 +230,19 @@ uint8_t ledValue(int fileCorner, int rankCornerTop);
 bool sendCynus(const std::string& line) {
   if (chr == nullptr) return false;
   Serial.printf("[CYNUS TX] %s", line.c_str());
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (machineGatewayActive()) {
+    // Prefer an acknowledged GATT write with two BLE links active. This
+    // acknowledges transport only, not execution by the robot's firmware.
+    const bool ok = chr->canWrite()
+        ? chr->writeValue((const uint8_t*)line.data(), line.size(), true)
+        : (chr->canWriteNoResponse() &&
+           chr->writeValue((const uint8_t*)line.data(), line.size(), false));
+    Serial.printf("[CYNUS MACHINE TX] %s (%s): %s", ok ? "OK" : "FAILED",
+                  chr->canWrite() ? "GATT response" : "no response", line.c_str());
+    return ok;
+  }
+#endif
   if (chr->canWriteNoResponse()) return chr->writeValue((const uint8_t*)line.data(), line.size(), false);
   if (chr->canWrite()) return chr->writeValue((const uint8_t*)line.data(), line.size(), true);
   return false;
@@ -1695,7 +1711,11 @@ void resetConnectionState() {
 class ClientCallbacks final : public NimBLEClientCallbacks {
  public:
   void onConnect(NimBLEClient*) override {}
-  void onDisconnect(NimBLEClient*, int) override {
+  void onDisconnect(NimBLEClient*, int reason) override {
+#ifdef CHESSLINK_ENABLE_MACHINE
+    if (machineGatewayActive())
+      Serial.printf("[CYNUS MACHINE] disconnected reason=%d (0x%X)\r\n", reason, unsigned(reason));
+#endif
     chr = nullptr;
     resetConnectionState();
     Serial.println("BLE disconnected; reconnecting automatically.");
@@ -1743,7 +1763,28 @@ bool cynusConnect(const NimBLEAddress& address) {
   // Tell Cynus we're driving it externally (King's own engine), not its
   // own onboard one -- matches CynusLink's proven connect handshake. Sent
   // first, right after the connection completes.
-  sendCynus("set internal engine off\n");
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (machineGatewayActive()) {
+    // Run on the connect task, not the cable-facing loop. Let the robot
+    // settle after subscription and repeat the idempotent engine-off
+    // command, as CynusLink does. Never accept failed initialization.
+    unsigned delivered = 0;
+    for (unsigned attempt = 0; attempt < 3 && delivered < 2; ++attempt) {
+      delay(kInitialScanDelayMs);
+      if (!bleClient->isConnected()) return false;
+      if (sendCynus("set internal engine off\n")) ++delivered;
+    }
+    if (delivered < 2) {
+      Serial.println("[CYNUS MACHINE] engine-off transport failed; reconnect required");
+      bleClient->disconnect();
+      return false;
+    }
+    delay(kInitialScanDelayMs);
+  } else
+#endif
+  {
+    sendCynus("set internal engine off\n");
+  }
 
   // "set illegal move check off" (see handleLine()'s "App version: V"
   // branch) only exists in app version 1.4.2+ -- ask for the version on
@@ -2027,3 +2068,10 @@ void cynusPoll() {
     }
   }
 }
+
+#ifdef CHESSLINK_ENABLE_MACHINE
+void cynusCancelPendingMachineMove() {
+  clearPendingLedMove("machine New Game");
+  clearAlternatingPair("machine New Game");
+}
+#endif
