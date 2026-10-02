@@ -186,48 +186,61 @@ This mode is independent of, and doesn't change, normal cable operation --
 if a chess computer module is present on the cable at power-up, standalone
 mode never activates.
 
-## Engine vs. engine (virtual board)
+## Engine vs. engine (with or without an e-board)
 
 This mode connects a **cable-connected King or Mephisto Phoenix** to
-**BLE ChessLink software**, such as BearChess, without a physical e-board.
-The gateway presents a virtual ChessLink/T2-style board to both sides and
-translates their move indications into the piece lift/place sequence of a
-real board.
+**BLE ChessLink software**, such as BearChess or another compatible GUI/app.
+Both computers see a ChessLink/T2-style board. An optional supported BLE
+e-board can sit between them: a person carries out the indicated moves on
+a sensor board, while ManyaCynus executes them with its robot arm.
 
-**Availability:** newly integrated into the development
-`esp32-c3-supermini` firmware. The separate experiment has been tested with
-BearChess; the integrated firmware and its New Game reset still need
-hardware validation. This does not imply availability in the published
-v9.3/web-installer image.
+**Availability:** part of the development `esp32-c3-supermini` firmware.
+The latest version has been reported working in a hardware test
+(2 October 2026). This is not a claim that every board/app combination has
+been tested, or that this version is included in the published v9.3
+web-installer image.
 
-### Connecting
+### Connecting — follow this order
 
-1. Leave nearby supported BLE e-boards switched off, so none wins the
-   connection before your software.
-2. Connect the gateway to the King/Phoenix by cable and follow the power
-   arrangement in [Startup sequence](#startup-sequence). Start the chess
-   computer and wait for it to finish booting.
-3. When cable traffic arrives, the gateway both searches for a real board
-   and advertises **MILLENNIUM CHESS**. In BearChess or another compatible
-   application, select a **ChessLink BLE board** and connect to that device.
-   No queen gesture is needed.
-4. Wait until the software receives the starting position before starting
-   engine play. Configure one side to play White and the other Black.
-   Either assignment is supported: the first legal opening move determines
-   which endpoint plays White.
-5. Start the game. Both sides receive the virtual board's position updates,
-   including the intermediate lift/place steps for captures, en passant and
-   castling (king first, then rook).
+1. **Boot the Phoenix or King first.** Connect the gateway by cable using
+   the power arrangement in [Startup sequence](#startup-sequence), and
+   wait until the chess computer is fully booted and **ready to play**.
+   Leave the optional e-board switched off for now.
+2. **Start and connect the other chess software next.** In BearChess or
+   another compatible GUI/app, select the **ChessLink BLE protocol** and
+   connect to the gateway advertised as **MILLENNIUM CHESS**. Wait for the
+   connection to complete. No queen gesture is needed.
+3. **Connect the optional known e-board last.** Only now switch on the
+   supported BLE board and let the gateway connect to it. Do this before
+   either engine makes its first move.
+4. **Set up the standard starting position, then start a new game.** Wait
+   until the physical starting position has been recognized. Configure one
+   computer to play White and the other Black, then start engine play.
+   Either colour assignment is supported: the first legal opening move
+   determines which side plays White.
+5. **End the session by powering off.** For the next session, repeat this
+   startup order.
 
-The first successful connection selects the mode for that boot. If a real
-e-board connects first, normal board operation is selected instead and the
-software advertisement closes. Disconnecting does not change that choice;
-restart the gateway to select a different mode.
+With a sensor board, carry out each indicated move and let the board report
+the resulting position. With ManyaCynus, wait for the robot to execute and
+confirm the move. The gateway passes the confirmed moves to both computers
+as the required lift/place steps.
+
+**Without a physical board**, skip step 3 and wait for the virtual starting
+position before starting the game. The gateway supplies the lift/place
+sequence itself. Once the first virtual move starts, the search for an
+e-board stops for that session; adding a board later requires a restart.
+
+**Connection order matters:** if a real e-board connects before the
+software, the gateway selects normal cable-to-board operation instead.
+After the software connects first, the gateway continues looking for an
+optional board until virtual play starts. A board disconnect does not
+switch an established physical-board session to virtual play.
 
 ### New Game and PGN recording
 
-**Engine-vs-engine games are recorded automatically as PGN**, using the same
-recorder and storage as physical-board games. Only complete move positions
+**Engine-vs-engine games are recorded automatically as PGN**, with or without
+an optional e-board, using the same recorder and storage as other board games. Only complete move positions
 enter the recording; lifting a piece does not create a separate chess move.
 
 In this mode, a **Magic Board Reset (`T`)** received from either host saves
@@ -249,6 +262,8 @@ physical board available for a queen gesture, holding the gateway's
 **BOOT button for at least 1.5 seconds between moves** saves/stops play and
 triggers USB export to the PGN tool; this is a stop/export action, not New Game.
 The normal minimum-length policy applies to this unfinished-game save.
+Power-off ends the session; it is not a PGN save command. To retain an
+unfinished game, use the save/stop action before switching off.
 
 Pawn promotion remains limited: LED source/destination indications alone do
 not identify the chosen promotion piece, so the gateway does not guess one.
@@ -269,7 +284,7 @@ stream every other part of the gateway already uses, so it works in every
 supported configuration:
 
 - Cable-connected chess computer (Phoenix/King) with any e-board
-- [Engine vs. engine](#engine-vs-engine-virtual-board), using the virtual board (development firmware)
+- [Engine vs. engine](#engine-vs-engine-with-or-without-an-e-board), with a virtual or physical board (development firmware)
 - [Standalone mode](#standalone-mode-no-cable-computer-required) (ChessLink/Chessnut masquerade)
 - Plain human-vs-human over-the-board play, with nothing else connected at all
 
