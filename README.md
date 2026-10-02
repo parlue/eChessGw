@@ -186,6 +186,128 @@ This mode is independent of, and doesn't change, normal cable operation --
 if a chess computer module is present on the cable at power-up, standalone
 mode never activates.
 
+## Engine vs. engine (with or without an e-board)
+
+The two engine-vs-engine operating modes are implemented and ready to use
+with the matching current firmware:
+
+| Mode | How moves are carried out |
+|---|---|
+| **With an e-board** | A person follows the move indications on a sensor board, or ManyaCynus executes them with its robot arm. The actual board confirms the position. |
+| **Without an e-board** | The gateway maintains a virtual board and supplies the piece lift/place sequence to both computers automatically. EChessTool provides the wireless New Game button. |
+
+Both modes connect a **cable-connected King or Mephisto Phoenix** to
+**BLE ChessLink software**, such as BearChess or another compatible GUI/app.
+Both computers see a ChessLink/T2-style board; neither needs a special
+EChessTool command or plugin.
+
+**Status, 2 October 2026:** both modes are complete for the established
+workflow. The boardless workflow has also been confirmed with the Android
+app: Connect, New Game, reversing the colours and playing the next game.
+This does not imply that every board/app combination has been tested.
+Use firmware that includes these features; the published v9.3 web-installer
+image must not be assumed to contain them.
+
+### Connecting — follow this order
+
+1. **Boot the Phoenix or King first.** Connect the gateway by cable using
+   the power arrangement in [Startup sequence](#startup-sequence). Wait
+   until the chess computer is fully booted and ready to play. Leave the
+   optional e-board switched off for now.
+2. **Connect the other chess software next.** Select **ChessLink BLE** in
+   BearChess or another compatible GUI/app and connect to **MILLENNIUM
+   CHESS**. Wait for the connection to complete. No queen gesture is needed.
+3. **For physical-board mode, switch on the known e-board now.** Wait for
+   its connection and the standard starting position to be recognized,
+   before either engine makes its first move.
+4. **For boardless mode, leave the e-board off.** Wait for the virtual
+   starting position supplied by the gateway.
+5. Configure one computer to play White and the other Black, then start
+   engine play. Either colour assignment is supported: the first legal
+   opening move determines which side plays White.
+
+With a sensor board, carry out each indicated move and let the board report
+the resulting position. With ManyaCynus, wait for the robot to execute and
+confirm the move. Only confirmed positions advance the physical-board game.
+
+**Connection order matters:** if a real e-board connects before the
+software, the gateway selects normal cable-to-board operation instead.
+After the software connects first, an optional board can still be selected
+until the first virtual move. Once virtual play starts, adding a playing
+board requires a gateway restart. A board disconnect never silently
+changes an established physical-board session into a virtual game.
+
+### EChessTool: New Game without a physical board
+
+**EChessTool** is the Android companion app, previously named **Newgame
+Button**. It acts as a wireless button, not as a chess engine or game viewer.
+Android APKs are provided in the [Android folder](Android); older builds
+may still carry the previous filename. The app requires Android 8 or newer
+and a phone that supports BLE peripheral advertising.
+
+The phone advertises its own BLE service; the gateway discovers and
+connects to it. This control connection is separate from the connection to
+the playing chess software.
+
+1. End or stop the current game and prepare a new game on both chess
+   computers/programs. Choose the desired colours.
+2. Open **EChessTool** and tap **Connect**. Allow the Nearby devices
+   permission when Android asks. The button is red while disconnected or
+   waiting, and turns **green** when the gateway has connected and enabled
+   New Game.
+3. Tap **New Game**. The gateway saves the previous recorded moves,
+   clears its pending moves and colour assignment, and sends the standard
+   starting position to both sides. It keeps the host connections and
+   connection settings.
+4. After the gateway confirms the operation, the app disconnects and the
+   Connect button returns to **red**. The app itself can stay open.
+5. Start the next game. Colours may be reversed; their assignment is
+   determined again by the first legal opening move.
+
+**Connect alone never resets the game.** New Game is enabled only after
+the gateway explicitly grants it. Repeating an unconfirmed request uses
+the same request ID, so reconnecting does not automatically reset the game
+again. The confirmation reports gateway processing and delivery to the
+outputs, not a separate acknowledgement from either chess program.
+
+The app is available only in boardless engine-vs-engine operation with the
+software connected. A selected real board disables this control path.
+Known boards detected during the app's scans take priority and prevent or
+end the phone connection; they do not force a mid-game change of playing
+board. Keep the app in the foreground during the short operation.
+It does not receive moves, positions, engine evaluations or clocks.
+
+EChessTool New Game sends **no hardware-reset command `T`**. The
+BearChess/software-side `T` is not used as a New Game trigger in machine
+mode. The separate **King/module cable-side `T` handling is preserved**.
+
+For physical-board mode, rebuild the standard starting position for the
+next game and prepare both chess programs accordingly. The gateway
+recognizes the restored starting position; EChessTool is not needed for
+that mode.
+
+### PGN recording and session limits
+
+**Engine-vs-engine games are recorded automatically as PGN**, with or
+without an e-board. Only complete move positions enter the recording;
+lifting a piece does not create a separate chess move. App-triggered
+New Game also preserves short unfinished games when moves were recorded.
+Repeated New Game operations before an opening move do not create empty
+games. Checkmate uses the normal automatic saving path.
+
+Saved-game retrieval is described [below](#retrieving-saved-games).
+EChessTool currently provides New Game only; it does not download PGN.
+On hardware where the gateway's BOOT button is accessible, holding it for
+at least 1.5 seconds between moves saves/stops play and triggers USB export.
+That is a separate stop/export action, not New Game, and is not required
+for the app workflow. The finished enclosure/layout need not provide a
+user-accessible button for New Game.
+
+Power-off is not a save command. Save an unfinished game before switching
+off. Pawn promotion remains limited: LED source/destination indications
+alone do not identify the chosen promotion piece, so the gateway does not
+guess one.
+
 ## Supported chess computer modules (cable side)
 
 Tested working: MILLENNIUM King and Mephisto Phoenix. Both speak Mode B over
@@ -202,6 +324,7 @@ stream every other part of the gateway already uses, so it works in every
 supported configuration:
 
 - Cable-connected chess computer (Phoenix/King) with any e-board
+- [Engine vs. engine](#engine-vs-engine-with-or-without-an-e-board), with a virtual or physical board (matching current firmware)
 - [Standalone mode](#standalone-mode-no-cable-computer-required) (ChessLink/Chessnut masquerade)
 - Plain human-vs-human over-the-board play, with nothing else connected at all
 
@@ -286,6 +409,11 @@ on-page instructions. See [`docs/`](docs) for how the installer is built and
 served.
 
 ## Project status
+
+Both engine-vs-engine modes (with and without a physical board) are implemented.
+The EChessTool Android app provides the tested boardless New Game workflow,
+including colour changes between games; see [Engine vs. engine](#engine-vs-engine-with-or-without-an-e-board).
+Firmware/APK publication is separate from this documentation update.
 
 **Working**, against a genuine ChessLink board, a Chessnut board, a ManyaCynus
 robot, and both a MILLENNIUM King and a Mephisto Phoenix chess computer
