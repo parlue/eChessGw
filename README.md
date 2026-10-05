@@ -571,6 +571,8 @@ Board manufacturers who would like their board supported, and anyone who'd
 like a ready-built device but can't solder one themselves, are welcome to
 get in touch: dsommerfeld@mac.com
 
+**Support:** also available on Discord -- server **electricchess**.
+
 ## License
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). Any
