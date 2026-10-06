@@ -157,25 +157,45 @@ undone (with a self-restart back into normal cable mode) the moment cable
 data is later detected, so it's safe even if a module just happened to boot
 slowly rather than being genuinely absent.
 
-**Setup sequence** (all signalled on the connected e-board itself -- LED
-squares light up on Millennium/Chessnut boards, ManyaCynus shows text):
+**Automatic protocol selection (firmware change, 6 October 2026):** in
+standalone operation, the gateway selects the other board protocol once
+the connected board has supplied its first valid position:
 
-1. The gateway connects to the e-board as usual and confirms its starting
+| Connected e-board | Gateway advertises as | Selection gesture |
+|---|---|---|
+| Chessnut Air / GO / Pro | **MILLENNIUM CHESS** — ChessLink BLE | None |
+| MILLENNIUM / Supreme T2 | **Chessnut Air** — Chessnut BLE | None |
+| Other supported board types | ChessLink or Chessnut BLE | Second white queen on a4 or b4, as below |
+
+This change has been built successfully locally but has not yet been
+flashed or hardware-tested. It requires firmware containing this change;
+the existing published v9.3/web-installer image must not be assumed to
+include it. Updating this README does not update the downloadable firmware.
+
+**Setup sequence** (signalled on the connected e-board itself — LED
+squares on Millennium/Chessnut boards, text on ManyaCynus):
+
+1. The gateway connects to the e-board and receives its first valid board
    position.
-2. **Ready signal**: the four center squares (d4/d5/e4/e5) light up (ManyaCynus:
-   "OK") for 3 seconds, then clear.
-3. Place a **second white queen** on the board (every one of these e-boards'
-   piece sets includes a spare queen for promotion anyway):
-   - **a4** selects ChessLink masquerade -- the gateway advertises as
-     "MILLENNIUM CHESS", the same name and protocol a real Millennium
-     Supreme board uses.
-   - **b4** selects Chessnut masquerade -- the gateway advertises as
-     "Chessnut Air", speaking Chessnut's own native BLE protocol.
+2. **Ready signal**: the four center squares (d4/d5/e4/e5) light up
+   (ManyaCynus: "OK") for 3 seconds, then clear.
+3. **Chessnut and Millennium boards:** selection is automatic according
+   to the table above. Do not place an extra queen to select a protocol.
+   **Other supported board types:** place a second white queen on
+   **a4** for ChessLink ("MILLENNIUM CHESS") or **b4** for Chessnut
+   ("Chessnut Air").
 4. **Confirmed signal**: the four corner squares light up (ManyaCynus:
    "ChessL" / "Chnut") for 3 seconds, then clear, and the selected
-   masquerade starts advertising.
-5. Connect to the gateway from your chess software like you would to a real
-   board of that type.
+   protocol starts advertising.
+5. Connect to the gateway from your chess software as you would to a real
+   board of the advertised type.
+
+**The cable chess computer always takes priority.** Automatic selection
+runs only in standalone mode. If cable data arrives later, including
+during setup or after a BLE app has connected, the existing restart
+mechanism resets the standalone selection and BLE connections and reruns
+cable detection. The selection is not saved persistently. Other gestures
+and the engine-vs-engine setup are unchanged.
 
 | Masquerade | Confirmed working with |
 |---|---|
@@ -374,7 +394,14 @@ Two independent ways to get saved games off the gateway:
 [standalone Chessnut masquerade mode](#standalone-mode-no-cable-computer-required)
 and connect from [Chess PGN Master](https://pgnmaster.kalab.com/) like you
 would to a real Chessnut board -- its own download feature retrieves saved
-games directly. Getting this working required reading the real
+games directly. With automatic protocol selection, a connected Millennium
+board enables this Chessnut mode automatically. A connected Chessnut
+Air/GO/Pro instead selects ChessLink mode, so use the USB retrieval method
+below for games stored on the gateway in that configuration; the a4/b4
+selection gesture no longer switches its protocol. Other supported board
+types can still select Chessnut mode with the b4 gesture.
+
+Getting this working required reading the real
 [EasyLinkSDK](https://github.com/chessnutech/EasyLinkSDK) source: the app's
 read thread only accepts raw board-status frames (the same format used for
 live play), not pre-built PGN/FEN text, so the gateway replays each saved
