@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "chessnut_board.h"
+#include "chessnutmove_board.h"
 #include "chesslink_server.h"
 #include "cynus_board.h"
 #include "ichessone_board.h"
@@ -402,6 +403,12 @@ void relayLedCommandToBoard(const uint8_t bytes8[8]) {
     }
     case BoardType::Chessnut:
       chessnutSetHighlightedSquares(highlights, count);
+      break;
+    case BoardType::ChessnutMove:
+      // Same shape as Cynus just above: Move has no per-square LEDs either,
+      // it's a robotic board -- forwarded to execute the move physically.
+      // User's own spec 2026-10-06: "wesendet keine leds sondern zuege".
+      chessnutmoveExecuteHighlightedMove(highlights, count);
       break;
     case BoardType::IChessOne:
       ichessoneSetHighlightedSquares(highlights, count);

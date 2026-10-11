@@ -19,7 +19,7 @@
 constexpr size_t kFrameBufferSize = 256;
 constexpr size_t kModeBStatusFrameLength = 67;
 
-enum class BoardType : uint8_t { Unknown, Millennium, Chessnut, Cynus, IChessOne
+enum class BoardType : uint8_t { Unknown, Millennium, Chessnut, Cynus, IChessOne, ChessnutMove
 #ifdef CHESSLINK_ENABLE_CERTABO
   , Certabo
 #endif
@@ -239,6 +239,20 @@ const uint8_t* cachedBoardStatusBytes();
 // ChessLink software) so both hosts get identical behavior. Implemented in
 // board_driver.cpp.
 void dispatchLedFrameToBoard(BoardType type, const uint8_t frame167[167]);
+
+// Cable-only variant of dispatchLedFrameToBoard(). A real King and a Mephisto
+// Phoenix are not identical cable hosts: only main.cpp's own cableStatusPolicy
+// knows which one is on the wire (plain-only checksum evidence = King), and
+// that difference DOES reach the board drivers -- a King sends each LED
+// suggestion exactly once and never repeats it, while Phoenix re-sends its 'L'
+// frames several times per second. hostRepeatsLedFrames is true for
+// Phoenix (and for BLE app clients, which keeps dispatchLedFrameToBoard()'s
+// behavior exactly as it was before); false lets a driver whose display is built
+// around "the host will repeat this anyway" show a once-only frame correctly
+// (see certaboSetOneShotLedSquares()). Implemented in board_driver.cpp; used
+// by main.cpp's cable receive path only.
+void dispatchCableLedFrameToBoard(BoardType type, const uint8_t frame167[167],
+                                  bool hostRepeatsLedFrames);
 
 // Physically clears whichever board type is connected (Millennium: sends
 // 'X58' to the real board; Chessnut: clears its highlight; Cynus: no-op, no

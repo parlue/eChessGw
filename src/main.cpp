@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include <esp_system.h>
 
 #include <algorithm>
 
@@ -7,6 +8,7 @@
 #include "cable_status_policy.h"
 #include "chesslink_server.h"
 #include "chessnut_board.h"
+#include "chessnutmove_board.h"
 #include "chessnut_server.h"
 #include "cynus_board.h"
 #include "ichessone_board.h"
@@ -132,6 +134,10 @@ constexpr uint32_t kBtBtSignalHoldMs = 3000;
 // the boot-time cable-detect logic fresh and this time correctly lands in
 // normal cable mode.
 bool cableFallbackArmed = false;
+// Carry only the deliberate late-cable restart across ESP.restart(). Consume
+// once at boot; power-on, external reset and crash resets keep auto-detection.
+constexpr uint32_t kCableRestartCookie = 0x4341424c;
+RTC_NOINIT_ATTR uint32_t cableRestartCookie;
 
 constexpr uint8_t kCenterSquares[4] = {
     boardSquareIndex('d', 4), boardSquareIndex('d', 5),
@@ -165,6 +171,7 @@ void statusLedTask(void*) {
 bool anyBoardConnected() {
   switch (activeBoardType) {
     case BoardType::Millennium: return millenniumIsConnected();
+    case BoardType::ChessnutMove: return chessnutmoveIsConnected();
     case BoardType::Chessnut: return chessnutIsConnected();
     case BoardType::Cynus: return cynusIsConnected();
     case BoardType::IChessOne: return ichessoneIsConnected();
@@ -184,6 +191,11 @@ struct KnownBoard {
 
 const KnownBoard kKnownBoards[] = {
     {kMillenniumBoardName, BoardType::Millennium},
+    // Must come BEFORE the generic Chessnut entries below: "CHESSNUT-MOVE"
+    // also contains "chessnut" and would otherwise be caught by the plain
+    // (non-robotic) Chessnut driver first -- see chessnutmove_board.h.
+    {kChessnutMoveBoardName, BoardType::ChessnutMove},
+    {kChessnutMoveBoardNameAlt, BoardType::ChessnutMove},
     {kChessnutBoardName, BoardType::Chessnut},
     {kChessnutBoardNameAlt, BoardType::Chessnut},
     {kCynusBoardName, BoardType::Cynus},
@@ -243,6 +255,7 @@ bool connectToBoard() {
 #endif
 
   const bool connected = (type == BoardType::Millennium) ? millenniumConnect(address)
+                          : (type == BoardType::ChessnutMove) ? chessnutmoveConnect(address)
                           : (type == BoardType::Chessnut) ? chessnutConnect(address)
                           : (type == BoardType::Cynus)    ? cynusConnect(address)
                           : (type == BoardType::IChessOne) ? ichessoneConnect(address)
@@ -392,12 +405,20 @@ void processBtBtStateMachine() {
       }
       break;
     case BtBtStage::WaitingForModeSelect: {
-      const int mode = detectBtBtModeSelection();
+      // Only choose automatically once the real board is ready. All other
+      // board types retain the existing gesture-based selection.
+      if (!anyBoardConnected() || !haveCachedBoardStatus) break;
+      const bool automatic = activeBoardType == BoardType::Chessnut ||
+                             activeBoardType == BoardType::Millennium;
+      const int mode = activeBoardType == BoardType::Chessnut ? 0 :
+                       activeBoardType == BoardType::Millennium ? 1 :
+                       detectBtBtModeSelection();
       if (mode < 0) break;
       btBtSelectedMode = mode;
-      if (activeBoardType == BoardType::Chessnut) chessnutTrackSelectionQueen(mode);
-      Serial.printf("BT-BT mode: %s selected via second white queen\r\n",
-                    mode == 0 ? "ChessLink" : "Chessnut");
+      // Automatic Chessnut selection places no extra queen to track or hide.
+      Serial.printf("BT-BT mode: %s selected %s\r\n",
+                    mode == 0 ? "ChessLink" : "Chessnut",
+                    automatic ? "automatically from board type" : "via second white queen");
       showBtBtSignal(kCornerSquares, 4, mode == 0 ? "ChessL" : "Chnut");
       btBtStage = BtBtStage::ShowingConfirm;
       btBtStageAt = nowMs;
@@ -597,6 +618,20 @@ void receiveFromMillenniumComputer() {
               ? "[CABLE] plain-only checksum: enabling active GO status (King timing)"
               : "[CABLE] encoded-only checksum: GO status in reply slots (Phoenix timing)");
         }
+#ifdef CHESSLINK_ENABLE_CERTABO
+        if (activeBoardType == BoardType::Certabo) {
+          certaboSetKingMode(cableStatusPolicy.allowActiveGoStatus());
+          // During Certabo setup no masquerade server has started yet. A
+          // validated King frame can select cable mode without tearing down BLE.
+          if (cableFallbackArmed && cableStatusPolicy.allowActiveGoStatus() &&
+              activeHostTransport == HostTransport::Cable) {
+            cableFallbackArmed = false;
+            btBtModeChosen = true;
+            btBtStage = BtBtStage::Inactive;
+            Serial.println("[CERTABO] King cable selected without restart");
+          }
+        }
+#endif
         if (frameUsedEncodedChecksum && !cableHostUsesEncodedChecksum) {
           cableHostUsesEncodedChecksum = true;
           Serial.println("Cable host uses the odd-parity-encoded checksum "
@@ -660,7 +695,19 @@ void receiveFromMillenniumComputer() {
           // (chesslink_server.cpp) so King/Phoenix on the cable and
           // external ChessLink software over BLE get identical per-board
           // LED handling -- see dispatchLedFrameToBoard()'s own comment.
-          dispatchLedFrameToBoard(activeBoardType, uartFrame);
+          //
+          // One host difference does reach the board drivers, and it is
+          // already learned right above: a King sends each LED suggestion
+          // exactly once (one 'L' frame per suggestion, plain-only checksum),
+          // while a Mephisto Phoenix re-sends its frames ~10-20 times per
+          // second (encoded checksum). A board display built around the host
+          // repeating itself -- Certabo's echo suppression, "already shown"
+          // early return and 2s hint expiry -- silently loses a once-only King
+          // frame; see certaboSetOneShotLedSquares(). An unknown convention
+          // (neither evidence yet) keeps the conservative, repeat-based path,
+          // exactly as before this change.
+          dispatchCableLedFrameToBoard(activeBoardType, uartFrame,
+                                       !cableStatusPolicy.allowActiveGoStatus());
         } else if (activeBoardType == BoardType::Millennium) {
           // King never sends non-'L' commands in practice, but relay
           // anything else unchanged too, exactly as always.
@@ -879,12 +926,21 @@ void onBoardStatusFrame(const uint8_t frame[kModeBStatusFrameLength]) {
   // moments after every highlight, clearing it right back off before it was
   // ever visible.
   if (activeBoardType != BoardType::Millennium && (wasFirstStatus || ledsAwaitingClear)) {
+#ifdef CHESSLINK_ENABLE_CERTABO
+    // Certabo owns steady move LEDs and completion suppression. Do not reset
+    // that history on board reports; delayed Phoenix echoes would relight them.
+    if (activeBoardType != BoardType::Certabo)
+#endif
     clearActiveBoardLeds();
     ledsAwaitingClear = false;
   }
 }
 
 void setup() {
+  const bool resumeCable = esp_reset_reason() == ESP_RST_SW &&
+                           cableRestartCookie == kCableRestartCookie;
+  cableRestartCookie = 0;
+  if (resumeCable) btBtModeChosen = true;
   // King sends its Mode-B identification immediately after power-up; start
   // its UART before USB logging and any BLE scan so those bytes aren't lost.
   MillenniumSerial.setRxBufferSize(4096);
@@ -905,6 +961,9 @@ void setup() {
   xTaskCreate(statusLedTask, "status-led", 1536, nullptr, 1, nullptr);
 
   Serial.println("\r\neChessGw multi-board gateway");
+  if (resumeCable) {
+    Serial.println("[CABLE] retained cable mode after late-host restart; BT-BT fallback disabled");
+  }
   Serial.printf("Cable: %lu baud, explicit odd parity over 8N1, RX=GPIO%d, TX=GPIO%d\r\n",
                 static_cast<unsigned long>(MILLENNIUM_BAUD), kMillenniumRxPin, kMillenniumTxPin);
   Serial.println("WARNING: cable GPIOs only through the 3.3 V MAX3232 TTL side.");
@@ -936,7 +995,10 @@ void loop() {
 
   receiveFromMillenniumComputer();
 
-  if (cableFallbackArmed && rawUartRxBytes > 0) {
+  if (cableFallbackArmed && rawUartRxBytes > 0 &&
+      (activeBoardType != BoardType::Certabo ||
+       cableStatusPolicy.convention() != CableStatusPolicy::Convention::Unknown)) {
+    cableRestartCookie = kCableRestartCookie;
     Serial.println("Cable data detected while in standalone BT-BT mode -- "
                     "restarting to switch to normal cable mode.");
     delay(50);
@@ -957,6 +1019,7 @@ void loop() {
     if (anyBoardConnected()) {
       switch (activeBoardType) {
         case BoardType::Millennium: millenniumPoll(); break;
+        case BoardType::ChessnutMove: chessnutmovePoll(); break;
         case BoardType::Chessnut: chessnutPoll(); break;
         case BoardType::Cynus: cynusPoll(); break;
         case BoardType::IChessOne: ichessonePoll(); break;
@@ -981,7 +1044,10 @@ void loop() {
       xTaskCreate(connectTask, "board-connect", 8192, nullptr, 1, nullptr);
     }
     ledState = chesslinkServerMachineSubscribed() ? LedState::Connected : LedState::Searching;
-    delay(1);
+    // Certabo LED frames are a live mirror of Phoenix's current frame. Keep
+    // the loop yielding to FreeRTOS, but do not add the 1 ms application
+    // pacing delay on this path.
+    delay(activeBoardType == BoardType::Certabo ? 0 : 1);
     return; // Machine owns status/LED routing; bypass the ordinary cable heartbeat.
   }
 #endif
@@ -989,6 +1055,7 @@ void loop() {
   if (anyBoardConnected()) {
     switch (activeBoardType) {
       case BoardType::Millennium: millenniumPoll(); break;
+      case BoardType::ChessnutMove: chessnutmovePoll(); break;
       case BoardType::Chessnut: chessnutPoll(); break;
       case BoardType::Cynus: cynusPoll(); break;
       case BoardType::IChessOne: ichessonePoll(); break;
@@ -1091,5 +1158,7 @@ void loop() {
     lastStatusMs = nowMs;
   }
 
-  delay(1);
+  // Certabo's LED relay is change-driven; delay(0) yields without inserting
+  // an application-level pause between Phoenix frames.
+  delay(activeBoardType == BoardType::Certabo ? 0 : 1);
 }

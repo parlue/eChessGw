@@ -269,31 +269,15 @@ void handleFrame(const uint8_t* frame, size_t length) {
       }
 #endif
       Serial.println("[CHESSLINK] L frame received from client, dispatching to connected board");
-      // BLE app clients (Chess Dojo, PGN Master, ...) encode the 9x9 LED
-      // corner grid 180 degrees rotated relative to real King/Phoenix
-      // cable hardware, even though it's the identical Mode-B wire
-      // format -- confirmed 2026-09-30 via a real Chess Dojo game: our
-      // outgoing board status reached Dojo correctly oriented, but
-      // Dojo's own move highlights decoded mirrored through the shared
-      // decoder (e.g. e2-e4 arrived as d7-d5). dispatchLedFrameToBoard()/
-      // extractMoveFromLCommand() is the exact same shared decoder the
-      // cable path (main.cpp's UART frames) uses unchanged for real King
-      // and Mephisto Phoenix hardware, so the correction must happen
-      // only here, at this BLE entry point -- never inside the shared
-      // decoder itself, or it would rotate the cable path too. Undoing a
-      // 180-degree rotation of the flattened 81-corner grid is just
-      // reversing its order (corner i <-> corner 80-i); the trailing
-      // checksum bytes are left as-is since the shared decoder never
-      // re-validates them (only chesslink_server.cpp's own frame
-      // assembly above does, before handleFrame() is ever called).
-      uint8_t rotated[167];
-      memcpy(rotated, frame, 167);
-      for (int i = 0; i < 40; ++i) {
-        const int j = 80 - i;
-        std::swap(rotated[3 + i * 2], rotated[3 + j * 2]);
-        std::swap(rotated[4 + i * 2], rotated[4 + j * 2]);
-      }
-      dispatchLedFrameToBoard(currentBoardType(), rotated);
+      // The client's 9x9 corner grid is already in the orientation the shared
+      // decoder expects (same as a King/Phoenix cable host). A 180-degree
+      // rotation used to be applied here (added 2026-09-30 after one Chess Dojo
+      // game); it mirrored every LED highlight on every board. Confirmed
+      // 2026-10-11 with BearChess and Dojo on Certabo and Chessnut Go: the
+      // client frame decoded e6/e7 for a real e7-e6, the rotation turned it into
+      // d2/d3. Machine mode branches off above, before this point.
+      // Backup of the rotating version: backups/pre_ble_rotation_20261011/.
+      dispatchLedFrameToBoard(currentBoardType(), frame);
       break;
     }
     default:

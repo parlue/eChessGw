@@ -22,7 +22,7 @@ Generic chess computer module with DIN connector
               ⇅ UART / 3.3 V
         ESP32-C3 SuperMini
               ⇅ BLE
-MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot
+MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot -- or -- Certabo
 ```
 
 <p>
@@ -40,6 +40,7 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot
 | MILLENNIUM Supreme T2 BT (and other genuine ChessLink boards) | Working -- native Mode B relayed as-is |
 | Chessnut Air / GO / Pro | Working -- Chessnut's own BLE protocol translated to/from Mode B, including LED move suggestions and New Game/reset highlighting |
 | ManyaCynus (camera-vision chess robot) | Working -- ManyaCynus's own line-based BLE protocol translated to/from Mode B; decodes the chess computer's own LED move suggestions and commands ManyaCynus's arm to execute them, including castling, en passant and pawn promotion |
+| Certabo (Bluetooth LE / Nordic UART, mono-LED boards) | Working -- piece chips are read in at every start ([see below](#certabo-reading-in-the-pieces)), then the board's own LEDs show move suggestions from a MILLENNIUM King, Mephisto Phoenix, BearChess and Chessnut clients |
 | iChessOne | Untested on real hardware -- driver built from the vendor's own documented BLE protocol (Nordic UART Service), not yet confirmed against a real unit |
 
 Board detection is automatic: on every (re)connect attempt, the gateway scans
@@ -120,6 +121,49 @@ the same robot that this gateway's ManyaCynus support is ported from.
   Clock/Scan button to submit that position as-is, no legality check --
   exactly what a real chess computer's own "set up position" mode expects.
 
+### Certabo: reading in the pieces
+
+A Certabo board identifies every piece by a chip ID, not by piece type. The
+gateway cannot know which chip is a queen, a rook or a pawn, so it has to
+**read in all 34 chips every time the gateway is started** (a short BLE
+reconnect to the same board keeps what was learned; a restart does not).
+Do this once after switching the gateway on and the Certabo has connected:
+
+1. Set up all 32 pieces in the normal starting position, White on ranks 1
+   and 2. Every piece must stand on its correct starting square -- the
+   software cannot tell afterwards what an unlearned chip is.
+2. Put the **second (spare) white queen on d3** and the **second (spare)
+   black queen on d6**. Both are required: the gateway needs 34 chips.
+3. While the position is being checked, the board's own LEDs light every
+   square that is still wrong (a missing piece, a piece on a wrong square,
+   or a chip that appears twice). Correct those squares until no LED
+   remains lit.
+4. When all 34 chips are read in and saved, the four centre squares **d4,
+   e4, d5 and e5 blink three times together**. That blinking is the
+   confirmation that the pieces are learned.
+5. **d3 and d6 stay lit** until the two spare queens are lifted off; each
+   LED goes out when its queen leaves. After that the board is ready and
+   behaves like any other supported e-board.
+
+A position with an unknown or duplicated chip is never taken for an empty
+square -- it is held back, so a loose or wrong piece cannot cause a wrong
+move.
+
+**Choosing the protocol (standalone mode):** the Certabo has no automatic
+selection, so the gesture is used. Once the centre squares have signalled
+that the board is ready, place the spare white queen **on a4 for
+ChessLink** (BearChess, Chess Dojo) or **on b4 for Chessnut** (Chess PGN
+Master and other Chessnut clients). Place it directly on its square and
+leave it there for a moment -- sliding it across a4 on the way to b4 can
+select ChessLink instead. The four corner squares a1, h1, a8 and h8 light
+for 3 seconds to confirm; then take the queen off the board again.
+
+**LEDs on the Certabo:** the board shows the move suggestion of a connected
+chess computer (a MILLENNIUM King or Mephisto Phoenix on the cable) or of a
+wireless client. With a King, the human's own move is also shown for half a
+second (both squares), and the King's suggestion stays lit until it is
+played. A Phoenix's blinking suggestion is mirrored as it arrives.
+
 ## Startup sequence
 
 Follow this order every time, especially when using a Mephisto Phoenix or
@@ -167,10 +211,10 @@ the connected board has supplied its first valid position:
 | MILLENNIUM / Supreme T2 | **Chessnut Air** — Chessnut BLE | None |
 | Other supported board types | ChessLink or Chessnut BLE | Second white queen on a4 or b4, as below |
 
-This change has been built successfully locally but has not yet been
-flashed or hardware-tested. It requires firmware containing this change;
-the existing published v9.3/web-installer image must not be assumed to
-include it. Updating this README does not update the downloadable firmware.
+This selection is part of the v11 firmware published in the web installer.
+The Certabo gesture path has been confirmed on real hardware; the automatic
+selection for Chessnut and MILLENNIUM boards has not been separately
+confirmed since this change.
 
 **Setup sequence** (signalled on the connected e-board itself — LED
 squares on Millennium/Chessnut boards, text on ManyaCynus):
@@ -477,7 +521,9 @@ client compatibility list.
 | v6.7 | Fix: the same Chessnut highlight command is also used by a connected app to echo a move it just saw the human make by hand -- confirmed on real hardware to make ManyaCynus's robot arm re-grab and disturb a piece the human had already placed correctly (a king, right after a hand-played castling). Now recognized and ignored (it's textually identical to the human move the gateway itself just detected) instead of re-executed, so the robot only ever moves for the computer's own side; also inactive while Free Analysis or Set Position is active. Separately: two BLE masquerade services (ChessLink and Chessnut) were both always connectable regardless of which one was actually selected, which could route a client to the wrong one and explain total silence -- the non-selected one now rejects connections outright instead |
 | v6.8 | Fix: in standalone BLE ChessLink masquerade mode, the board-status frame sent to a connected app (e.g. BearChess) was relayed in the cable module's own wire orientation (rotated 180 degrees) instead of plain board order, so the app never received a correct position; also adds a 1s connection health-check watchdog that restarts advertising if it goes stale |
 | v6.9 | Renamed the project to eChessGw (was BluetoothMax) and switched all documentation/UI text from "Bluetooth" to "BLE" to avoid any Bluetooth SIG trademark conflict -- no functional change to the protocol or hardware support. Also removed an unjustified BLE MTU request (128, never actually required by any supported client) |
-| v9.3 (current) | ManyaCynus: pure software-driven game replay over the ChessLink BLE masquerade (e.g. Chess PGN Master stepping through a loaded game, with no human ever scanning a move) now works end-to-end. Fixed 3 related issues, each scoped so the King/Phoenix cable path and BearChess are provably unaffected: (1) BLE app clients (Chess Dojo, Chess PGN Master) encode the LED move-highlight grid 180 degrees rotated relative to real King/Phoenix cable hardware, despite the identical wire format -- confirmed via a real Chess Dojo game (outgoing status reached it correctly oriented, but its own move highlights decoded mirrored, e.g. e2-e4 arriving as d7-d5); corrected only at the BLE entry point, never inside the shared decoder; (2) the LED-channel move decoder now tracks the actually-alternating side to move instead of a single game-long fixed color whenever no human has scanned a move yet this game, matching the fix already used for Chessnut replay -- both colors arriving over the same channel used to get silently dropped or rejected every other move; (3) removed the automatic "the scan looks flipped, so flip must be on" heuristic entirely (it assumed a move arriving over the LED channel before any scan always meant the software plays White, which stopped holding once software could drive both colors) -- board orientation now comes only from the manual black-King gesture, moved to b5/b6 (see the option table above) |
+| v9.3 | ManyaCynus: pure software-driven game replay over the ChessLink BLE masquerade (e.g. Chess PGN Master stepping through a loaded game, with no human ever scanning a move) now works end-to-end. Fixed 3 related issues, each scoped so the King/Phoenix cable path and BearChess are provably unaffected: (1) BLE app clients (Chess Dojo, Chess PGN Master) encode the LED move-highlight grid 180 degrees rotated relative to real King/Phoenix cable hardware, despite the identical wire format -- confirmed via a real Chess Dojo game (outgoing status reached it correctly oriented, but its own move highlights decoded mirrored, e.g. e2-e4 arriving as d7-d5); corrected only at the BLE entry point, never inside the shared decoder; (2) the LED-channel move decoder now tracks the actually-alternating side to move instead of a single game-long fixed color whenever no human has scanned a move yet this game, matching the fix already used for Chessnut replay -- both colors arriving over the same channel used to get silently dropped or rejected every other move; (3) removed the automatic "the scan looks flipped, so flip must be on" heuristic entirely (it assumed a move arriving over the LED channel before any scan always meant the software plays White, which stopped holding once software could drive both colors) -- board orientation now comes only from the manual black-King gesture, moved to b5/b6 (see the option table above) |
+| v10 | + Engine-vs-engine `machine_gateway` subsystem: two chess computers/apps can play each other through the gateway, with or without a physical board (see [Engine vs. engine](#engine-vs-engine-with-or-without-an-e-board)) |
+| v11 (current) | + **Certabo** board support (Bluetooth LE / Nordic UART): the board's 34 piece chips are read in at every start ([see above](#certabo-reading-in-the-pieces)), mono LEDs show suggestions from a MILLENNIUM King, Mephisto Phoenix and wireless clients; the human's own move is shown on the Certabo with a King. Also: LED highlights sent by BLE clients (BearChess, Chess Dojo) are now used exactly as received -- the 180 degree rotation added in v9.3 mirrored them on Certabo and Chessnut boards, and client frames are handled like a King's single-shot suggestions (double pawn pushes and castling highlight the right squares); `ChessnutMove` robotic board support is included |
 
 ## Components
 

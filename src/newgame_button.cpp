@@ -41,7 +41,9 @@ bool scan(NimBLEAddress& phone, bool& foundPhone, uint32_t duration) {
   for (int i = 0; i < results.getCount(); ++i) {
     auto device = results.getDevice(i);
     if (newgameButtonKnownBoard(device)) realBoard = true;
-    if (device->isAdvertisingService(serviceId)) { phone = device->getAddress(); foundPhone = true; }
+    if (device->haveName() && device->getName() == "EChessTool") {
+      phone = device->getAddress(); foundPhone = true;
+    }
   }
   scanner->clearResults();
   return realBoard;

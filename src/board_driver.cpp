@@ -8,6 +8,8 @@
 #include "millennium_board.h"
 #ifdef CHESSLINK_ENABLE_CERTABO
 #include "certabo_board.h"
+#include "certabo_king_filter.h"
+#include "certabo_castling.h"
 #endif
 
 namespace {
@@ -131,6 +133,27 @@ void encodeLedFrame(const uint8_t* squareIndices, size_t count, uint8_t frame167
 }
 
 void dispatchLedFrameToBoard(BoardType type, const uint8_t frame167[167]) {
+  // BLE ChessLink clients (BearChess, Dojo) behave like a King, not a Phoenix:
+  // one 'L' frame per event (lift, own move, reply), roughly a second apart, never
+  // repeated (live capture 2026-10-11). The Phoenix accumulator path loses such
+  // once-only frames (a double pawn push e7-e5 showed e5/e6, e7 dropped) and lacks
+  // the King's ghost-square and castling handling. Only the Certabo branch reads
+  // this flag.
+#ifdef CHESSLINK_ENABLE_CERTABO
+  // The King-style one-shot path only shows the human's own move (arrival scan
+  // and the host's echo frame) while Certabo's kingMode is on; the cable turns it
+  // on from its status policy, a BLE client never does. Without it the echo frame
+  // is consumed and nothing is displayed -- own moves were swallowed.
+  if (type == BoardType::Certabo) certaboSetKingMode(true);
+#endif
+  dispatchCableLedFrameToBoard(type, frame167, /*hostRepeatsLedFrames=*/false);
+}
+
+void dispatchCableLedFrameToBoard(BoardType type, const uint8_t frame167[167],
+                                  bool hostRepeatsLedFrames) {
+#if !defined(CHESSLINK_ENABLE_CERTABO)
+  (void)hostRepeatsLedFrames;  // only the Certabo branch below uses it
+#endif
   if (type == BoardType::Millennium) {
     millenniumSuppressNextLedAck();
     // millenniumRequestBoardStatus() used to fire here on every single 'L'
@@ -361,8 +384,71 @@ void dispatchLedFrameToBoard(BoardType type, const uint8_t frame167[167]) {
 #ifdef CHESSLINK_ENABLE_CERTABO
   } else if (type == BoardType::Certabo) {
     SquareHighlight squares[64];
-    const size_t count = decodeKingLedFrame(frame167, squares, 64);
-    certaboSetHighlightedSquares(squares, count);
+    size_t count = decodeKingLedFrame(frame167, squares, 64);
+    if (!hostRepeatsLedFrames) {
+      uint64_t fields = 0;
+      for (size_t i=0; i<count; ++i) fields |= uint64_t(1) << squares[i].squareIndex;
+      char board[64]{};
+      const uint8_t* cached = cachedBoardStatusBytes();
+      if (cached) for (int s=0;s<64;++s) board[s]=cached[1+modeBStatusWireIndex(s%8,s/8+1)];
+      // Castling: the King lights king and rook, from and to. Queenside they span
+      // the whole back-rank run a..e, whose corner overlap lights the empty square
+      // between them as a ghost (b1/b8), and kingGhost() can neither remove that
+      // nor be trusted not to drop the real rook destination. The board decides:
+      // see certabo_castling.h. Never reached by Phoenix (hostRepeatsLedFrames).
+      const uint64_t castle = cached ? certabo::castlingMask(fields, board) : 0;
+      if (castle) {
+        size_t resolved = 0;
+        for (int s=0;s<64 && resolved<64;++s) if ((castle>>s)&1u) {
+          squares[resolved].squareIndex = static_cast<uint8_t>(s);
+          squares[resolved].role = board[s] != '.' ? SquareHighlightRole::Source
+                                                    : SquareHighlightRole::Destination;
+          ++resolved;
+        }
+        Serial.printf("[CERTABO LED] castling frame: decoded %u square(s), shown %u (king+rook, from+to)\r\n",
+                      static_cast<unsigned>(count), static_cast<unsigned>(resolved));
+        count = resolved;
+      } else {
+        size_t kept = 0;
+        for (size_t i=0;i<count;++i) {
+          const int s=squares[i].squareIndex;
+          const int corner=(7-s%8)*9+s/8;
+          const bool uniform=ledGrid[corner]==ledGrid[corner+1] &&
+              ledGrid[corner]==ledGrid[corner+9] && ledGrid[corner]==ledGrid[corner+10];
+          if (squares[i].role == SquareHighlightRole::Generic &&
+              certabo::kingGhost(s, fields, uniform, cached ? board : nullptr)) continue;
+          squares[kept++]=squares[i];
+        }
+        count=kept;
+      }
+    }
+    // No per-frame Serial logging here: Phoenix sends an 'L' frame roughly
+    // every 43-100ms continuously while blinking a suggestion, and loop()
+    // is single-threaded -- any Serial.printf() on this path directly delays
+    // the next receiveFromMillenniumComputer() call, i.e. the King/Phoenix
+    // cable channel itself. A temporary debug version of this block (one
+    // unconditional printf per incoming frame) was used to analyze the
+    // Certabo LED echo/reply pattern and caused exactly this kind of
+    // channel starvation; removed now that the protocol is understood.
+    static int lastHostRepeats = -1;
+    if (static_cast<int>(hostRepeatsLedFrames) != lastHostRepeats) {
+      lastHostRepeats = hostRepeatsLedFrames;
+      Serial.printf("[CERTABO LED] cable host %s its LED frames; using the %s path\r\n",
+                    hostRepeatsLedFrames ? "repeats" : "does not repeat",
+                    hostRepeatsLedFrames ? "Phoenix accumulator" : "direct one-shot");
+    }
+    if (hostRepeatsLedFrames) {
+      certaboSetMoveLights(squares, count);
+    } else {
+      // King: one frame already carries the complete suggestion (source AND
+      // destination corner bits, no ghost squares -- see decodeKingLedFrame())
+      // and is sent exactly once per suggestion. certaboSetMoveLights()'s echo
+      // suppression, "already displayed" early return and 2s hint expiry all
+      // assume the host re-sends the same squares often enough to repair them
+      // (true for Phoenix, never for a King), so a King is displayed directly,
+      // exactly like the iChessOne branch above does for the same host.
+      certaboSetOneShotLedSquares(squares, count);
+    }
 #endif
   }
 }

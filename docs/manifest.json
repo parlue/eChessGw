@@ -1,6 +1,6 @@
 {
   "name": "eChessGw",
-  "version": "v10 (Engine-vs-Engine: new machine_gateway subsystem lets two chess computers/apps play each other through the gateway, with a physical board and the New Game button driving the match -- see README for details)",
+  "version": "v11 (Certabo board support: piece chips are read in at every start, LED suggestions from King/Phoenix and wireless clients; BLE LED highlights no longer mirrored -- see README for details)",
   "new_install_prompt_erase": true,
   "builds": [
     {
