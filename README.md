@@ -22,7 +22,7 @@ Generic chess computer module with DIN connector
               ⇅ UART / 3.3 V
         ESP32-C3 SuperMini
               ⇅ BLE
-MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot -- or -- Certabo
+MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot -- or -- Certabo -- or -- iChessOne
 ```
 
 <p>
@@ -41,7 +41,7 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 | Chessnut Air / GO / Pro | Working -- Chessnut's own BLE protocol translated to/from Mode B, including LED move suggestions and New Game/reset highlighting |
 | ManyaCynus (camera-vision chess robot) | Working -- ManyaCynus's own line-based BLE protocol translated to/from Mode B; decodes the chess computer's own LED move suggestions and commands ManyaCynus's arm to execute them, including castling, en passant and pawn promotion |
 | Certabo (Bluetooth LE / Nordic UART, mono-LED boards) | Working -- piece chips are read in at every start ([see below](#certabo-reading-in-the-pieces)), then the board's own LEDs show move suggestions from a MILLENNIUM King, Mephisto Phoenix, BearChess and Chessnut clients |
-| iChessOne | Untested on real hardware -- driver built from the vendor's own documented BLE protocol (Nordic UART Service), not yet confirmed against a real unit |
+| iChessOne | Untested on real hardware -- driver built from the vendor's own documented BLE protocol (Nordic UART Service), not yet confirmed against a real unit; LED colour and brightness can be chosen by gesture ([see below](#ichessone-led-colour-and-brightness)) |
 
 Board detection is automatic: on every (re)connect attempt, the gateway scans
 for any known board's advertised BLE name and connects to whichever one it
@@ -163,6 +163,42 @@ chess computer (a MILLENNIUM King or Mephisto Phoenix on the cable) or of a
 wireless client. With a King, the human's own move is also shown for half a
 second (both squares), and the King's suggestion stays lit until it is
 played. A Phoenix's blinking suggestion is mirrored as it arrives.
+
+### iChessOne: LED colour and brightness
+
+The iChessOne is found by its BLE name `iChessOne` (Nordic UART Service). It has
+two LEDs per square; the board's own firmware handles that, so the gateway only
+names the squares to light. All squares light in **one steady colour** (red at
+75 % brightness by default). The colour and the brightness can be changed with a
+gesture on the starting position, without any app:
+
+1. Set up the normal starting position (all 32 pieces).
+2. Put **one extra white queen** on one of the squares below and leave it there
+   for about a second.
+
+| Square | Setting |
+|---|---|
+| g3 | Colour **red** (default) |
+| g4 | Colour **blue** |
+| g5 | Colour **green** |
+| g6 | Colour **orange** |
+| h3 | Brightness **25 %** |
+| h4 | Brightness **50 %** |
+| h5 | Brightness **75 %** (default) |
+| h6 | Brightness **100 %** |
+
+As confirmation the four centre squares **d4, e4, d5 and e5 blink three times**
+in the new setting (the board does the blinking itself). The choice is stored in
+the gateway and kept after a restart. Take the extra queen off the board again
+afterwards. The gesture does not interfere with the standalone-mode queen
+gesture on a4/b4. Colour and brightness are independent: set one, then the
+other. (g7 is not used -- it is occupied on the starting position.)
+
+**Status:** this gesture is implemented in the development source (October 2026)
+and is **not yet part of the published v11 firmware / web installer image**; it
+will be included in the next release. Like the whole iChessOne driver it has not
+been tested on a real board yet, and the exact look of the orange and of the
+brightness steps depends on the board's LEDs.
 
 ## Startup sequence
 
