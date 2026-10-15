@@ -73,9 +73,29 @@
   </ul>
 
   <div class="installer">
+    <h2>Stable release — v11</h2>
+    <p>Recommended for normal use. ESP32-C3 SuperMini.</p>
     <esp-web-install-button manifest="manifest.json">
     </esp-web-install-button>
   </div>
+
+  <details class="installer" id="spectrum-beta">
+    <summary><strong>Beta: Certabo Spectrum — 2026-10-15</strong></summary>
+    <p>Test firmware for <strong>ESP32-C3 SuperMini only</strong>, built from the
+      current development version. Adds the Spectrum 81-LED RGB protocol,
+      with red LEDs at 80% brightness. Hardware verification is pending.</p>
+    <p>Piece IDs are learned again at startup: use the normal starting position
+      plus a white queen on d3 and a black queen on d6. After confirmation,
+      remove the two extra queens.</p>
+    <p>Spectrum LED detection requires the board/bridge to send its RGB marker.
+      If the marker is absent or ambiguous, LEDs remain off. Please test
+      startup, corner mapping, all-off, and King/Phoenix move indications.</p>
+    <esp-web-install-button manifest="beta/spectrum-20261015/manifest.json">
+    </esp-web-install-button>
+    <p>You can reinstall the stable release above at any time.</p>
+    <p><a href="beta/spectrum-20261015/README.md">Beta notes</a> ·
+      <a href="beta/spectrum-20261015/source.zip">Corresponding source</a></p>
+  </details>
 
   <h2>Installation</h2>
   <ol>
