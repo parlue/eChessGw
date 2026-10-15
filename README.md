@@ -35,6 +35,11 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 
 ## Supported e-boards
 
+**Spectrum beta (2026-10-15):** The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta)
+now offers a separate test build for **ESP32-C3 SuperMini**. Stable v11 remains
+available unchanged. This beta is the current development build, not a frozen
+release. A freeze will only be made after the tester confirms correct operation.
+
 | Board | Status |
 |---|---|
 | MILLENNIUM Supreme T2 BT (and other genuine ChessLink boards) | Working -- native Mode B relayed as-is |
@@ -42,10 +47,40 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 | ManyaCynus (camera-vision chess robot) | Working -- ManyaCynus's own line-based BLE protocol translated to/from Mode B; decodes the chess computer's own LED move suggestions and commands ManyaCynus's arm to execute them, including castling, en passant and pawn promotion |
 | Certabo (Bluetooth LE / Nordic UART, mono-LED boards) | Working -- piece chips are read in at every start ([see below](#certabo-reading-in-the-pieces)), then the board's own LEDs show move suggestions from a MILLENNIUM King, Mephisto Phoenix, BearChess and Chessnut clients |
 | iChessOne | Untested on real hardware -- driver built from the vendor's own documented BLE protocol (Nordic UART Service), not yet confirmed against a real unit; LED colour and brightness can be chosen by gesture ([see below](#ichessone-led-colour-and-brightness)) |
+| Tabutronic Spectrum / Certabo RGB | Beta only -- separate 81-LED RGB encoder, red at 80% brightness; real-board validation and passive RGB identification still pending |
 
 Board detection is automatic: on every (re)connect attempt, the gateway scans
 for any known board's advertised BLE name and connects to whichever one it
 finds, with no build-time board selection needed.
+
+### Spectrum beta: installation and testing
+
+Open the [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta), expand
+**Beta: Certabo Spectrum**, and use the installer inside that section.
+The stable installer above it still installs v11. Both target ESP32-C3 SuperMini.
+
+The beta reuses Certabo BLE reception and calibration, with a separate RGB LED
+encoder: 81 RGB LEDs, 247-byte frames, red `(204, 0, 0)` (80%). Start with the
+normal 32-piece position plus a white queen on d3 and a black queen on d6.
+After calibration confirmation, remove the two extra queens. Piece IDs are
+learned at each startup; the beta does not reuse another user's archived IDs.
+
+LED protocol selection uses passive standalone `L` / `D` markers, **not MTU**.
+The Spectrum specification documents `D` as a reply, so an unsolicited RGB marker
+from the board/bridge still needs hardware confirmation. If no clear marker is
+received, LED output stays off rather than sending an uncertain frame format.
+
+Please verify calibration, all LEDs off in the correct starting position,
+A1/H1/A8/H8 corner mapping, brightness, King/Phoenix move indications, and BLE
+reconnection. If LEDs stay off, capture the startup serial log at 115200 baud.
+The mono-Certabo LED encoder remains separate; regression checks are still part
+of beta testing. Reinstall stable v11 through the normal installer if needed.
+
+[Beta notes](docs/beta/spectrum-20261015/README.md) and
+[the corresponding development source](docs/beta/spectrum-20261015/source.zip)
+are included with the beta. The repository's existing source tree continues to
+represent its previous published state; use the beta source archive to reproduce
+this test build. No new frozen PlatformIO environment has been created.
 
 ### ManyaCynus special cases
 
