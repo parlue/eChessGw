@@ -8,6 +8,7 @@
 #include "chesslink_server.h"
 #include "pgn_recorder.h"
 #include "cable_status_policy.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 namespace {
 MachineSelection selection;

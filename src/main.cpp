@@ -19,6 +19,8 @@
 #ifdef CHESSLINK_ENABLE_CERTABO
 #include "certabo_board.h"
 #endif
+#include "gw_log_upload.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 namespace {
 
@@ -150,6 +152,15 @@ enum class LedState : uint8_t { Searching, Connected };
 volatile LedState ledState = LedState::Searching;
 
 void statusLedTask(void*) {
+  if (gwlog::recording()) {  // two short blinks right after boot = log recording is switched on
+    for (int i = 0; i < 2; ++i) {
+      digitalWrite(kStatusLedPin, LOW);
+      vTaskDelay(pdMS_TO_TICKS(120));
+      digitalWrite(kStatusLedPin, HIGH);
+      vTaskDelay(pdMS_TO_TICKS(180));
+    }
+    vTaskDelay(pdMS_TO_TICKS(600));
+  }
   bool ledOn = false;
   uint32_t lastChangeMs = 0;
   for (;;) {
@@ -202,6 +213,7 @@ const KnownBoard kKnownBoards[] = {
     {kIChessOneBoardName, BoardType::IChessOne},
 #ifdef CHESSLINK_ENABLE_CERTABO
     {kCertaboBoardName, BoardType::Certabo},
+    {"Spectrum", BoardType::Certabo}, // same family; protocol chosen from received evidence
 #endif
 };
 
@@ -221,6 +233,21 @@ bool scanForKnownBoard(NimBLEAddress& address, BoardType& type) {
   NimBLEScan* scan = NimBLEDevice::getScan();
   scan->setActiveScan(true);
   NimBLEScanResults results = scan->getResults(5000, false);
+
+  // Log tag (2026-10-12): an app advertising "eChessGateway" collects the stored log. Runs on the BLE
+  // connect task (never in loop()), at most 3 attempts per boot, then the normal board search goes on.
+  static bool logUploadDone = false;
+  static int logUploadTries = 0;
+  if (!logUploadDone && logUploadTries < 3) {
+    for (int i = 0; i < results.getCount(); ++i) {
+      const NimBLEAdvertisedDevice* tag = results.getDevice(i);
+      if (tag->haveName() && containsCaseInsensitive(tag->getName(), gwlog::kTagName)) {
+        ++logUploadTries;
+        logUploadDone = gwlog::uploadTo(tag->getAddress());
+        break;
+      }
+    }
+  }
 
   for (int i = 0; i < results.getCount(); ++i) {
     const NimBLEAdvertisedDevice* device = results.getDevice(i);
@@ -945,6 +972,7 @@ void setup() {
   // its UART before USB logging and any BLE scan so those bytes aren't lost.
   MillenniumSerial.setRxBufferSize(4096);
   MillenniumSerial.begin(MILLENNIUM_BAUD, SERIAL_8N1, kMillenniumRxPin, kMillenniumTxPin);
+  gwlog::begin();  // log recorder (flags from NVS, boot line) -- only AFTER the cable UART runs
 
   Serial.begin(kMonitorBaud);
   delay(1500);
@@ -988,6 +1016,7 @@ void setup() {
 }
 
 void loop() {
+  gwlog::poll(rawUartRxBytes);
   if (verboseCableLogArmed && static_cast<int32_t>(millis() - verboseCableLogUntilMs) >= 0) {
     verboseCableLogArmed = false;
     dumpVerboseCableLog();

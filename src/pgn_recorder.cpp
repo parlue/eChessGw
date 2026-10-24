@@ -1324,3 +1324,4 @@ size_t pgnRecorderGameFenSequenceByIndex(int index, char* outBuffer, size_t outB
 #include "machine/machine.h"
 #include "machine/recorder_adapter.inc"
 #endif
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper

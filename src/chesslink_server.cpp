@@ -8,6 +8,7 @@
 #include "chessnut_server.h"
 #include "chesslink_status_refresh.h"
 #include "machine_gateway.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 // Ported from CynusLink's own proven ChessLink-server role (real UUIDs,
 // checksum/register handling, connection tuning) -- see chesslink_server.h.

@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 const char kCynusBoardName[] = "CYNUS-";
 

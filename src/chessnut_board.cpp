@@ -1,4 +1,5 @@
 #include "chessnut_board.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 const char kChessnutBoardName[] = "chessnut";
 const char kChessnutBoardNameAlt[] = "smart chess";

@@ -1,4 +1,5 @@
 #include "chessnutmove_board.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 // Confirmed via the community chessnut-move-rs port (daymxn/chessnut-move-rs,
 // DEVICE_NAME constant) since Chessnut's own official EasyLinkSDK doesn't

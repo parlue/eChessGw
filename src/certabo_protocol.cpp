@@ -1,6 +1,9 @@
 #include "certabo_protocol.h"
 
 #include <cstring>
+#ifdef ARDUINO
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
+#endif
 
 namespace certabo {
 namespace {

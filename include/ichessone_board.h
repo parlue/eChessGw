@@ -49,3 +49,11 @@ void ichessonePoll();
 // do per-square color/brightness/flash, but none of that is used here).
 void ichessoneSetHighlightedSquares(const SquareHighlight* squares, size_t count);
 void ichessoneClearLeds();
+
+// Move suggestion from a cable host or BLE client (2026-10-11). repeatingHost
+// is true for a Mephisto Phoenix (re-sends alternating single-square frames
+// every ~43 ms): the last two different squares are shown steadily and clear
+// ~1 s after the last frame. False for a King or BLE client (one frame per
+// suggestion): exactly that set is shown. Identical masks are never rewritten
+// and consecutive EL commands are >= 25 ms apart.
+void ichessoneShowSuggestion(const SquareHighlight* squares, size_t count, bool repeatingHost);

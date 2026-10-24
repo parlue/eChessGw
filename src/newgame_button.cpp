@@ -3,6 +3,7 @@
 #include "machine_gateway.h"
 #include <Preferences.h>
 #include <atomic>
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 namespace {
 const NimBLEUUID serviceId("773a0001-7e5b-4c2a-9d13-619b8e04f260");

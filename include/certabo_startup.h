@@ -10,8 +10,11 @@ class Startup {
   void learned() { phase_ = 1; waiting_ = true; timed_=false; }
   bool active() const { return waiting_; }
   void sent(uint32_t now) { if (phase_ && phase_ <= 6 && !timed_) { at_=now; timed_=true; } }
-  void mask(uint32_t now, const RawBoard& board, uint8_t out[8], const Calibration* calibration=nullptr) {
+  void mask(uint32_t now, const RawBoard& board, uint8_t out[8], const Calibration* calibration=nullptr, bool quietConfirmation=false) {
     if (phase_ && phase_ <= 6 && timed_ && uint32_t(now-at_)>=700) { ++phase_; timed_=false; }
+    // Spectrum app keeps LEDs off during the 4.2 s confirmation to avoid
+    // LED-induced sensor noise. Advance the same clock without repeated writes.
+    if(quietConfirmation) sent(now);
     if (phase_==0) {
       // Debounce: a square must look mismatched on two consecutive DISTINCT
       // scans before it lights up. A single mid-placement scan can misread
@@ -37,7 +40,7 @@ class Startup {
       }
       ledMask(squares,count,out);
     } else if (phase_<=6) {
-      const uint8_t center[]={27,28,35,36}; ledMask(center,phase_%2 ? 4 : 0,out);
+      const uint8_t center[]={27,28,35,36}; ledMask(center,!quietConfirmation && phase_%2 ? 4 : 0,out);
     } else {
       constexpr char start[]="rnbqkbnrpppppppp................................PPPPPPPPRNBQKBNR";
       uint8_t squares[64]; size_t count=0;

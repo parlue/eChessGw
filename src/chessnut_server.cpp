@@ -16,6 +16,7 @@
 #include "certabo_board.h"
 #endif
 #include "pgn_recorder.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 // Ported from gkalab/cer2nut (https://github.com/gkalab/cer2nut, read
 // directly as ground truth) -- an open-source bridge that masks a Certabo

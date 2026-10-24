@@ -6,11 +6,13 @@
 #include "cynus_board.h"
 #include "ichessone_board.h"
 #include "millennium_board.h"
+#include "certabo_castling.h"  // header-only; also used by the iChessOne LED branch
 #ifdef CHESSLINK_ENABLE_CERTABO
 #include "certabo_board.h"
 #include "certabo_king_filter.h"
 #include "certabo_castling.h"
 #endif
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 namespace {
 
@@ -371,16 +373,76 @@ void dispatchCableLedFrameToBoard(BoardType type, const uint8_t frame167[167],
     // cynus_board.cpp for why.
     cynusHandleLedFrame(frame167);
   } else if (type == BoardType::IChessOne) {
-    // Simple relay via the shared decoder, same as Chessnut's own decode
-    // step above -- but without Chessnut's ghost-square filter, which was
-    // built specifically for Chessnut/Phoenix-observed geometry quirks with
-    // no evidence (yet) that iChessOne needs the same treatment. Role
+    // Shared decoder, then the same two ghost-square corrections the Certabo
+    // needed for the same hosts (2026-10-11 review): corner overlap lights the
+    // square between two uniformly marked squares two apart (e7-e5 -> e6) and
+    // the empty square(s) of a queenside castling (b1/b8). Role
     // (source/destination) is dropped -- iChessOne only gets one steady
     // color from this project (see ichessoneSetHighlightedSquares()), so
-    // there's nothing to distinguish.
+    // there's nothing to distinguish. The display (Phoenix accumulation,
+    // single-shot for King/BLE, write de-duplication) lives in
+    // ichessoneShowSuggestion().
     SquareHighlight squares[32];
-    const size_t count = decodeKingLedFrame(frame167, squares, 32);
-    ichessoneSetHighlightedSquares(count > 0 ? squares : nullptr, count);
+    size_t count = decodeKingLedFrame(frame167, squares, 32);
+    if (count > 0) {
+      uint64_t fields = 0;
+      for (size_t i = 0; i < count; ++i) fields |= uint64_t(1) << (squares[i].squareIndex & 63);
+      char board[64]{};
+      const uint8_t* cached = cachedBoardStatusBytes();
+      uint64_t castle = 0;
+      if (cached) {
+        for (int s = 0; s < 64; ++s) board[s] = cached[1 + modeBStatusWireIndex(s % 8, s / 8 + 1)];
+        castle = certabo::castlingMask(fields, board);
+      }
+      if (castle) {
+        count = 0;
+        for (int s = 0; s < 64 && count < 32; ++s) {
+          if ((castle >> s) & 1u) squares[count++] = {static_cast<uint8_t>(s), SquareHighlightRole::Generic};
+        }
+      } else {
+        auto uniform = [](int file0, int rank) {
+          const int c = (7 - file0) * 9 + (rank - 1);
+          return ledGrid[c] == ledGrid[c + 1] && ledGrid[c] == ledGrid[c + 9] && ledGrid[c] == ledGrid[c + 10];
+        };
+        auto has = [&](int file0, int rank) {
+          for (size_t j = 0; j < count; ++j)
+            if (squares[j].squareIndex % 8 == file0 && squares[j].squareIndex / 8 + 1 == rank) return true;
+          return false;
+        };
+        size_t kept = 0;
+        for (size_t i = 0; i < count; ++i) {
+          const int file0 = squares[i].squareIndex % 8;
+          const int rank = squares[i].squareIndex / 8 + 1;
+          const bool sandwiched = (has(file0, rank - 1) && has(file0, rank + 1)) ||
+                                  (has(file0 - 1, rank) && has(file0 + 1, rank));
+          if (squares[i].role == SquareHighlightRole::Generic && sandwiched && !uniform(file0, rank)) continue;
+          squares[kept++] = squares[i];
+        }
+        count = kept;
+        // A single move lights two squares; a THIRD one directly between them
+        // (same file or rank, one square apart) can only be corner overlap. The
+        // uniform-corner test above cannot see it when the host marks every
+        // square with the same value (BearChess generic marks, e7-e5 -> e6).
+        if (count == 3) {
+          for (size_t m = 0; m < 3; ++m) {
+            const size_t a = (m + 1) % 3, b = (m + 2) % 3;
+            const int mf = squares[m].squareIndex % 8, mr = squares[m].squareIndex / 8;
+            const int af = squares[a].squareIndex % 8, ar = squares[a].squareIndex / 8;
+            const int bf = squares[b].squareIndex % 8, br = squares[b].squareIndex / 8;
+            const bool onFile = mf == af && mf == bf && mr * 2 == ar + br && (ar - br == 2 || br - ar == 2);
+            const bool onRank = mr == ar && mr == br && mf * 2 == af + bf && (af - bf == 2 || bf - af == 2);
+            if (onFile || onRank) {
+              const SquareHighlight first = squares[a], second = squares[b];
+              squares[0] = first;
+              squares[1] = second;
+              count = 2;
+              break;
+            }
+          }
+        }
+      }
+    }
+    ichessoneShowSuggestion(count > 0 ? squares : nullptr, count, hostRepeatsLedFrames);
 #ifdef CHESSLINK_ENABLE_CERTABO
   } else if (type == BoardType::Certabo) {
     SquareHighlight squares[64];

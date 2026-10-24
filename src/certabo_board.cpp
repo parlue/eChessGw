@@ -1,5 +1,9 @@
 #include "certabo_board.h"
 #include "certabo_protocol.h"
+#include "certabo_led_identity.h"
+#include "certabo_spectrum_leds.h"
+#include "certabo_spectrum_input.h"
+#include "certabo_spectrum_settings.h"
 #include "certabo_startup.h"
 #include "certabo_move_lights.h"
 #include "certabo_king_echo.h"
@@ -8,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 const char kCertaboBoardName[] = "Certabo";
 
@@ -16,7 +21,7 @@ constexpr char kServiceUuid[] = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 constexpr char kWriteUuid[] = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
 constexpr char kNotifyUuid[] = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 constexpr size_t kChunkSize = 128;
-struct Packet { uint32_t sequence; uint16_t length; uint8_t data[kChunkSize]; };
+struct Packet { uint32_t sequence; uint16_t length; uint16_t notificationLength; uint8_t data[kChunkSize]; };
 NimBLEClient* client = nullptr;
 NimBLERemoteCharacteristic* writer = nullptr;
 QueueHandle_t queue = nullptr;
@@ -25,6 +30,11 @@ std::atomic<uint32_t> dropped{0};
 uint32_t nextSequence = 0;  // BLE task producer only
 uint32_t expectedSequence = 0;  // loop consumer only
 certabo::Parser parser;
+certabo::LedIdentity ledIdentity;
+certabo::spectrum::InputFilter spectrumInput;
+certabo::spectrum::Settings spectrumSettings;
+bool spectrumGesture=false, spectrumPreview=false;
+uint32_t spectrumPreviewAt=0;
 certabo::Calibration calibration;
 certabo::Startup startup;
 certabo::RawBoard latestBoard{};
@@ -94,6 +104,7 @@ void notify(NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bool) {
   for (size_t offset = 0; offset < length; offset += kChunkSize) {
     Packet packet{};
     packet.sequence = nextSequence++;
+    packet.notificationLength=offset==0 ? static_cast<uint16_t>(length) : 0;
     packet.length = static_cast<uint16_t>(std::min(kChunkSize, length - offset));
     memcpy(packet.data, data + offset, packet.length);
     if (xQueueSend(queue, &packet, 0) != pdTRUE) ++dropped;
@@ -142,6 +153,7 @@ void position(const certabo::RawBoard& board) {
   }
   uint8_t frame[67]{};
   if (!calibration.decode(board, frame)) {
+    if(ledIdentity.spectrum()) {spectrumSettings.resetGesture();spectrumGesture=false;}
     static uint32_t lastRejectedDump=0;
     static uint32_t lastWithheldLog=0;
     if(uint32_t(millis()-lastRejectedDump)>=5000) {
@@ -166,6 +178,13 @@ void position(const certabo::RawBoard& board) {
   }
   unknownReported = false;
   latestBoard = board;
+  if(ledIdentity.spectrum() && !startup.active()) {
+    char current[64];
+    for(size_t i=0;i<64;++i)current[i]=frame[64-(i^56)];
+    spectrumGesture=spectrumSettings.observe(current,millis());
+    // Configuration queen must not be forwarded as a game move to the host.
+    if(spectrumGesture) return;
+  }
   for(size_t i=0;i<64;++i) lightBoard[i]=frame[64-(i^56)];
   // What the King had lit before this scan: a suggestion pair means the human
   // is executing the King's move, a single lifted square means the human's own.
@@ -266,7 +285,9 @@ void position(const certabo::RawBoard& board) {
 }
 
 void sendLeds() {
-  const auto type = parser.leds;
+  const auto type = ledIdentity.type();
+  // Never test an unknown board by sending the other model's LED format.
+  if (!ledIdentity.positionSeen() || type == certabo::LedType::Unknown) return;
   const uint32_t now = millis();
   uint8_t display[8];
   memcpy(display,wantedLeds,8);
@@ -286,19 +307,29 @@ void sendLeds() {
     moveEcho.reset();
     kingPulseUntil=0;
   }
+  if(ledIdentity.spectrum() && spectrumPreview) {
+    const uint32_t phase=uint32_t(now-spectrumPreviewAt)/350;
+    if(phase>=6)spectrumPreview=false;
+    else {const uint8_t center[]={27,28,35,36};certabo::ledMask(center,phase%2==0 ? 4 : 0,display);}
+  }
   const bool unchanged=haveSentLeds && type==sentLedType && memcmp(display,sentLeds,8)==0;
   // Normal play is change-driven: an identical mask is never retransmitted.
   // Startup alone permits a timed repeat so its phase clock can advance.
   const bool refreshKing = kingMode && !startup.active() &&
                            uint32_t(now-lastLedSentAt) >= 300;
-  if (unchanged && !refreshKing && (!startup.active() || uint32_t(now-lastLedSentAt)<250)) return;
+  if (ledIdentity.spectrum()) {
+    if(unchanged && uint32_t(now-lastLedSentAt)<10000) return;
+  } else if (unchanged && !refreshKing && (!startup.active() || uint32_t(now-lastLedSentAt)<250)) return;
   // Coalesce rapid King updates into the newest complete mask. Never block
   // board reception; certaboPoll retries the pending state. Phoenix unchanged.
   if (kingMode && !startup.active() && haveSentLeds &&
       uint32_t(now-lastLedSentAt) < 120) return;
   uint8_t command[247]{};
   const size_t length = type == certabo::LedType::Rgb ? sizeof(command) : 8;
-  if (type == certabo::LedType::Rgb) certabo::rgbCommand(display, command);
+  if (type == certabo::LedType::Rgb) {
+    uint8_t rgb[3];spectrumSettings.rgb(rgb);
+    certabo::spectrum::encode(display, command,rgb[0],rgb[1],rgb[2]);
+  }
   else memcpy(command, display, 8);
   const uint16_t mtu = client->getMTU();
   const size_t chunk = mtu >= 23 ? mtu - 3 : 20;
@@ -361,6 +392,19 @@ bool certaboConnect(const NimBLEAddress& address) {
   reportedDrops = reportedBad = badFrames = 0;
   diagnosticBytes = 0;
   parser.reset();
+  ledIdentity.reset();
+  spectrumInput.reset();
+  spectrumSettings.resetGesture();
+  spectrumGesture=spectrumPreview=false;
+  { Preferences prefs;
+    spectrumSettings.color=0;spectrumSettings.brightness=204;
+    if(prefs.begin("spectrum",true)) {
+      const uint8_t color=prefs.getUChar("color",0),level=prefs.getUChar("bright",204);
+      spectrumSettings.color=color<4 ? color : 0;
+      spectrumSettings.brightness=(level==64||level==128||level==191||level==204||level==255) ? level : 204;
+      prefs.end();
+    }
+  }
   havePosition = haveSentLeds = unknownReported = occupancyReported = false;
   memset(wantedLeds, 0, sizeof(wantedLeds));
   memset(ledSeenAt, 0, sizeof(ledSeenAt));
@@ -412,10 +456,14 @@ void certaboPoll() {
   while (certaboIsConnected() && xQueueReceive(queue, &packet, 0) == pdTRUE) {
     if (packet.sequence != expectedSequence) {
       parser.resetStream();
+      ledIdentity.resetPending();
+      spectrumInput.reset();
+      spectrumSettings.resetGesture();spectrumGesture=false;
       calibration.resetWindow();
       Serial.println("[CERTABO] RX gap; discarding partial frame and calibration samples");
     }
     expectedSequence = packet.sequence + 1;
+    if(packet.notificationLength && packet.length)ledIdentity.notification(packet.notificationLength,packet.data[0]);
     // Bounded byte-exact capture, including malformed frames, for hardware diagnosis.
     if (diagnosticBytes < 8192) {
       char hex[kChunkSize * 2 + 1];
@@ -426,11 +474,29 @@ void certaboPoll() {
       diagnosticBytes += n;
     }
     for (size_t i = 0; i < packet.length; ++i) {
-      const auto oldLedType = parser.leds;
+      const auto oldLedType = ledIdentity.type();
+      const bool oldConflict = ledIdentity.conflict();
+      ledIdentity.feed(packet.data[i]);
       const auto result = parser.feed(packet.data[i]);
-      if (parser.leds != oldLedType) Serial.printf("[CERTABO] %s LEDs detected\r\n", parser.leds == certabo::LedType::Rgb ? "RGB" : "mono");
+      if (ledIdentity.conflict() && !oldConflict)
+        Serial.println("[CERTABO] conflicting L/D identity; LED writes disabled until reconnect");
+      else if (ledIdentity.type() != oldLedType)
+        Serial.printf("[CERTABO] %s LED driver selected from passive marker; MTU=%u\r\n",
+                      ledIdentity.type()==certabo::LedType::Rgb ? "Spectrum red 80%" : "mono",
+                      client->getMTU());
       if (result == certabo::ParseResult::Position) {
-        position(parser.board());
+        const auto before = ledIdentity.type();
+        const bool wasSpectrum = ledIdentity.spectrum();
+        ledIdentity.observe(parser.board());
+        if(before!=ledIdentity.type() || wasSpectrum!=ledIdentity.spectrum()) {
+          haveSentLeds=false;
+          Serial.printf("[CERTABO] detection: %s\r\n",
+              ledIdentity.spectrumTags() ? "Spectrum tag prefix (2,0)" :
+              ledIdentity.packetFallback() ? "Spectrum 64-byte notification fallback (not MTU)" :
+              ledIdentity.type()==certabo::LedType::Mono ? "mono Certabo" : "undetermined");
+        }
+        if(ledIdentity.spectrumTags()) position(spectrumInput.apply(parser.board()));
+        else position(parser.board());
         // Certabo scans can arrive back-to-back in one BLE queue drain.
         // Publish the LED state after each complete scan so a later scan
         // cannot hide an intermediate move indication until the drain ends.
@@ -453,7 +519,18 @@ void certaboPoll() {
       reportedBad = badFrames;
     }
   }
-  if (startup.active()) startup.mask(millis(), latestBoard, wantedLeds, calibration.ready() ? &calibration : nullptr);
+  if (startup.active()) startup.mask(millis(), latestBoard, wantedLeds, calibration.ready() ? &calibration : nullptr, ledIdentity.spectrum());
+  if(ledIdentity.spectrum() && !startup.active() && spectrumGesture && spectrumSettings.tick(millis())) {
+    Preferences prefs;
+    bool saved=false;
+    if(prefs.begin("spectrum",false)) {
+      const bool c=prefs.putUChar("color",spectrumSettings.color)==1;
+      const bool b=prefs.putUChar("bright",spectrumSettings.brightness)==1;
+      saved=c&&b;prefs.end();
+    }
+    Serial.printf("[SPECTRUM] gesture colour=%u brightness=%u/255 saved=%u\r\n",spectrumSettings.color,spectrumSettings.brightness,saved);
+    haveSentLeds=false;spectrumPreview=true;spectrumPreviewAt=millis();
+  }
   if (certaboIsConnected()) sendLeds();
 }
 

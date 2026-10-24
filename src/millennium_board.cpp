@@ -1,5 +1,6 @@
 #include "millennium_board.h"
 #include "millennium_link_watchdog.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 const char kMillenniumBoardName[] = "MILLENNIUM CHESS";
 

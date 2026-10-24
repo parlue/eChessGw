@@ -10,6 +10,7 @@
 #include "ichessone_board.h"
 #include "millennium_board.h"
 #include "pgn_recorder.h"
+#include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
 namespace {
 // Delete-on-ack state -- see usbPgnDumpPoll()'s own header comment. Only
@@ -45,6 +46,7 @@ void usbPgnDumpTrigger() {
   constexpr uint32_t kDumpTxTimeoutMs = 20;
   const uint32_t previousTxTimeoutMs = 100;  // HWCDC's own compiled-in default
   Serial.setTxTimeoutMs(kDumpTxTimeoutMs);
+  gwlog::capture(false);  // PGN text/binary dump is not log material
 
   const int count = pgnRecorderSavedGameCount();
   Serial.printf("###PGN_USB_DUMP_BEGIN count=%d###\r\n", count);
@@ -67,6 +69,7 @@ void usbPgnDumpTrigger() {
   Serial.println("###PGN_USB_DUMP_END###");
 
   Serial.setTxTimeoutMs(previousTxTimeoutMs);
+  gwlog::capture(true);
 
   // Arm the delete-on-ack window -- see usbPgnDumpPoll(). Deliberately does
   // NOT wait here: blocking loop() on Serial input for even a couple of
