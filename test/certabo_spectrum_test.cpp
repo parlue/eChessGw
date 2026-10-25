@@ -100,6 +100,18 @@ int main(int argc,char** argv) {
   for(int i=0;i<2;++i){id.notification(64,':');id.observe(foreign);assert(!id.spectrum());}
   id.notification(64,':');id.observe(foreign);assert(id.packetFallback() && !id.spectrumTags());
   id.observe(mono);assert(id.type()==LedType::Mono && !id.packetFallback());
+  // Mono boards with unfamiliar tags must not become RGB due to packet size.
+  id.reset();feed(id,"L\r\n");
+  for(int i=0;i<8;++i){id.notification(64,':');id.observe(foreign);}
+  assert(id.type()==LedType::Mono && !id.spectrum());
+  // A late explicit marker also supersedes an earlier packet-only guess.
+  id.reset();for(int i=0;i<3;++i){id.notification(64,':');id.observe(foreign);}
+  assert(id.packetFallback());feed(id,"L\r\n");
+  assert(id.type()==LedType::Mono && !id.spectrum());
+  id.observe(rgb);assert(id.spectrumTags() && id.type()==LedType::Rgb);
+  id.reset();feed(id,"L\r\nD\r\n");
+  for(int i=0;i<3;++i){id.notification(64,':');id.observe(foreign);}
+  assert(id.conflict() && id.type()==LedType::Unknown);
   id.reset();for(int i=0;i<4;++i){id.notification(128,':');id.observe(foreign);}assert(!id.spectrum());
   id.reset();for(int i=0;i<4;++i){id.notification(64,'2');id.observe(foreign);}assert(!id.spectrum());
   certabo::spectrum::Settings settings;uint8_t rgbValues[3];settings.rgb(rgbValues);

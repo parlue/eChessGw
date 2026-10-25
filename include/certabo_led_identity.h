@@ -31,7 +31,10 @@ class LedIdentity {
   }
   bool positionSeen() const { return positionSeen_; }
   bool spectrumTags() const { return tags_==LedType::Rgb; }
-  bool packetFallback() const { return tags_==LedType::Unknown && !monoTagsSeen_ && packet64_>=3 && positions_>=3; }
+  // Packet length is only a fallback when no explicit protocol marker exists.
+  // Older mono boards may use other chip prefixes and the same BLE packet size.
+  // Positive Spectrum tag evidence still overrides L (as observed on Spectrum).
+  bool packetFallback() const { return tags_==LedType::Unknown && selected_==LedType::Unknown && !conflict_ && !monoTagsSeen_ && packet64_>=3 && positions_>=3; }
   bool spectrum() const { return spectrumTags() || packetFallback(); }
   void resetPending() { token_=0; length_=0; }
   void feed(uint8_t byte) {
