@@ -34,6 +34,7 @@ certabo::Parser parser;
 certabo::LedIdentity ledIdentity;
 certabo::spectrum::InputFilter spectrumInput;
 certabo::spectrum::Settings spectrumSettings;
+bool spectrumSettingsLoaded=false;
 bool spectrumGesture=false, spectrumPreview=false;
 uint32_t spectrumPreviewAt=0;
 certabo::Calibration calibration;
@@ -285,10 +286,25 @@ void position(const certabo::RawBoard& board) {
   }
 }
 
+void loadSpectrumSettings() {
+  if (spectrumSettingsLoaded) return;
+  spectrumSettingsLoaded=true;
+  // Both BLE modules advertise as Certabo. Do not access Spectrum-specific
+  // NVS before connecting to an as-yet unidentified standard board.
+  Preferences prefs;
+  if(prefs.begin("spectrum",true)) {
+    const uint8_t color=prefs.getUChar("color",0),level=prefs.getUChar("bright",204);
+    spectrumSettings.color=color<4 ? color : 0;
+    spectrumSettings.brightness=(level==64||level==128||level==191||level==204||level==255) ? level : 204;
+    prefs.end();
+  }
+}
+
 void sendLeds() {
   const auto type = ledIdentity.type();
   // Never test an unknown board by sending the other model's LED format.
   if (!ledIdentity.positionSeen() || type == certabo::LedType::Unknown) return;
+  if (type == certabo::LedType::Rgb) loadSpectrumSettings();
   const uint32_t now = millis();
   uint8_t display[8];
   memcpy(display,wantedLeds,8);
@@ -397,15 +413,8 @@ bool certaboConnect(const NimBLEAddress& address) {
   spectrumInput.reset();
   spectrumSettings.resetGesture();
   spectrumGesture=spectrumPreview=false;
-  { Preferences prefs;
-    spectrumSettings.color=0;spectrumSettings.brightness=204;
-    if(prefs.begin("spectrum",true)) {
-      const uint8_t color=prefs.getUChar("color",0),level=prefs.getUChar("bright",204);
-      spectrumSettings.color=color<4 ? color : 0;
-      spectrumSettings.brightness=(level==64||level==128||level==191||level==204||level==255) ? level : 204;
-      prefs.end();
-    }
-  }
+  spectrumSettingsLoaded=false;
+  spectrumSettings.color=0;spectrumSettings.brightness=204;
   havePosition = haveSentLeds = unknownReported = occupancyReported = false;
   memset(wantedLeds, 0, sizeof(wantedLeds));
   memset(ledSeenAt, 0, sizeof(ledSeenAt));
@@ -426,34 +435,22 @@ bool certaboConnect(const NimBLEAddress& address) {
   const bool mtuRequested = NimBLEDevice::setMTU(256);
   Serial.printf("[CERTABO] requested MTU=256 accepted=%u previous=%u\r\n", mtuRequested, previousMtu);
   const uint32_t connectStarted = millis();
-  bool connected = client->connect(address);
+  const bool connected = client->connect(address);
   if (!connected) {
     const int error = client->getLastError();
-    Serial.printf("[CERTABO] BLE normal failed: rc=%d (%s), elapsed=%lu ms, link=%u; build=ble-compat-20261025\r\n",
+    Serial.printf("[CERTABO] BLE normal failed: rc=%d (%s), elapsed=%lu ms, link=%u; build=ble256-v11compare-20261025\r\n",
                   error, NimBLEUtils::returnCodeToString(error),
                   static_cast<unsigned long>(millis()-connectStarted), client->isConnected());
-    // Preserve the successful Spectrum path. Only a failed connection gets
-    // one legacy attempt, to the SAME peer, without an early MTU exchange.
-    // LED writes already fragment by the actual MTU (20-byte payload at MTU23).
-    if (!client->isConnected()) {
-      const uint32_t retryStarted = millis();
-      Serial.println("[CERTABO] BLE compatibility retry: same peer, no initial MTU exchange");
-      connected = client->connect(address, true, false, false);
-      if (!connected) {
-        const int retryError = client->getLastError();
-        Serial.printf("[CERTABO] BLE compatibility failed: rc=%d (%s), elapsed=%lu ms\r\n",
-                      retryError, NimBLEUtils::returnCodeToString(retryError),
-                      static_cast<unsigned long>(millis()-retryStarted));
-      } else {
-        Serial.printf("[CERTABO] BLE compatibility connected, MTU=%u\r\n",client->getMTU());
-      }
-    }
   } else {
-    Serial.printf("[CERTABO] BLE normal connected in %lu ms, MTU=%u; build=ble-compat-20261025\r\n",
+    Serial.printf("[CERTABO] BLE normal connected in %lu ms, MTU=%u; build=ble256-v11compare-20261025\r\n",
                   static_cast<unsigned long>(millis()-connectStarted),client->getMTU());
   }
   NimBLEDevice::setMTU(previousMtu);
   if (!connected) return false;
+  const auto connectionInfo=client->getConnInfo();
+  Serial.printf("[CERTABO] BLE link: interval=%.2f ms latency=%u timeout=%u ms\r\n",
+                connectionInfo.getConnInterval()*1.25,connectionInfo.getConnLatency(),
+                connectionInfo.getConnTimeout()*10);
   // NUS is also used by iChessOne. Scan selects by name, then verify the
   // actual service UUID and properties; never treat NUS alone as Certabo.
   NimBLERemoteService* service = client->getService(kServiceUuid);

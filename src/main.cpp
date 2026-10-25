@@ -258,6 +258,23 @@ bool scanForKnownBoard(NimBLEAddress& address, BoardType& type) {
         type = known.type;
         Serial.printf("BLE board found: %s (%s, addr type %d)\r\n",
                       device->getName().c_str(), address.toString().c_str(), address.getType());
+#ifdef CHESSLINK_ENABLE_CERTABO
+        if (type == BoardType::Certabo) {
+          // Both USB/BLE bridge variants advertise the same board name. Keep
+          // their original AD data for comparison; do not guess by MAC/OUI.
+          Serial.printf("[CERTABO ADV] RSSI=%d connectable=%u gatewayAdvertising=%u NimBLE=%s\r\n",
+                        device->getRSSI(),device->isConnectable(),
+                        NimBLEDevice::getAdvertising()->isAdvertising(),NimBLEDevice::getVersion());
+          const auto& payload=device->getPayload();
+          for (size_t offset=0;offset<payload.size();offset+=32) {
+            char hex[65];
+            const size_t count=std::min(size_t(32),payload.size()-offset);
+            for(size_t j=0;j<count;++j)snprintf(hex+j*2,3,"%02X",payload[offset+j]);
+            hex[count*2]=0;
+            Serial.printf("[CERTABO ADV] offset=%u data=%s\r\n",unsigned(offset),hex);
+          }
+        }
+#endif
         scan->clearResults();
         return true;
       }
