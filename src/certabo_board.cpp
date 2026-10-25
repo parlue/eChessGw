@@ -9,6 +9,7 @@
 #include "certabo_king_echo.h"
 
 #include <Preferences.h>
+#include <NimBLEUtils.h>
 #include <algorithm>
 #include <atomic>
 #include <cstring>
@@ -424,7 +425,33 @@ bool certaboConnect(const NimBLEAddress& address) {
   const uint16_t previousMtu = NimBLEDevice::getMTU();
   const bool mtuRequested = NimBLEDevice::setMTU(256);
   Serial.printf("[CERTABO] requested MTU=256 accepted=%u previous=%u\r\n", mtuRequested, previousMtu);
-  const bool connected = client->connect(address);
+  const uint32_t connectStarted = millis();
+  bool connected = client->connect(address);
+  if (!connected) {
+    const int error = client->getLastError();
+    Serial.printf("[CERTABO] BLE normal failed: rc=%d (%s), elapsed=%lu ms, link=%u; build=ble-compat-20261025\r\n",
+                  error, NimBLEUtils::returnCodeToString(error),
+                  static_cast<unsigned long>(millis()-connectStarted), client->isConnected());
+    // Preserve the successful Spectrum path. Only a failed connection gets
+    // one legacy attempt, to the SAME peer, without an early MTU exchange.
+    // LED writes already fragment by the actual MTU (20-byte payload at MTU23).
+    if (!client->isConnected()) {
+      const uint32_t retryStarted = millis();
+      Serial.println("[CERTABO] BLE compatibility retry: same peer, no initial MTU exchange");
+      connected = client->connect(address, true, false, false);
+      if (!connected) {
+        const int retryError = client->getLastError();
+        Serial.printf("[CERTABO] BLE compatibility failed: rc=%d (%s), elapsed=%lu ms\r\n",
+                      retryError, NimBLEUtils::returnCodeToString(retryError),
+                      static_cast<unsigned long>(millis()-retryStarted));
+      } else {
+        Serial.printf("[CERTABO] BLE compatibility connected, MTU=%u\r\n",client->getMTU());
+      }
+    }
+  } else {
+    Serial.printf("[CERTABO] BLE normal connected in %lu ms, MTU=%u; build=ble-compat-20261025\r\n",
+                  static_cast<unsigned long>(millis()-connectStarted),client->getMTU());
+  }
   NimBLEDevice::setMTU(previousMtu);
   if (!connected) return false;
   // NUS is also used by iChessOne. Scan selects by name, then verify the
@@ -432,9 +459,18 @@ bool certaboConnect(const NimBLEAddress& address) {
   NimBLERemoteService* service = client->getService(kServiceUuid);
   writer = service ? service->getCharacteristic(kWriteUuid) : nullptr;
   auto* reader = service ? service->getCharacteristic(kNotifyUuid) : nullptr;
-  if (!writer || !writer->canWriteNoResponse() || !reader || !reader->canNotify() ||
-      !reader->subscribe(true, notify)) {
-    Serial.println("[CERTABO] NUS discovery/properties/subscription failed");
+  if (!writer || !writer->canWriteNoResponse() || !reader || !reader->canNotify()) {
+    Serial.printf("[CERTABO] NUS discovery failed: service=%u writer=%u WNR=%u reader=%u notify=%u rc=%d\r\n",
+                  service!=nullptr,writer!=nullptr,writer && writer->canWriteNoResponse(),
+                  reader!=nullptr,reader && reader->canNotify(),client->getLastError());
+    client->disconnect();
+    writer = nullptr;
+    return false;
+  }
+  if (!reader->subscribe(true, notify)) {
+    const int error=client->getLastError();
+    Serial.printf("[CERTABO] notification subscription failed: rc=%d (%s)\r\n",
+                  error,NimBLEUtils::returnCodeToString(error));
     client->disconnect();
     writer = nullptr;
     return false;

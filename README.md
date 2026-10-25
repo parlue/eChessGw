@@ -35,7 +35,7 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 
 ## Supported e-boards
 
-**Spectrum beta (2026-10-25):** The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta)
+**Certabo / Spectrum BLE diagnostic beta (2026-10-25):** The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta)
 now offers a separate test build for **ESP32-C3 SuperMini**. Stable v11 remains
 available unchanged. This beta is the current development build, not a frozen
 release. A freeze will only be made after the tester confirms correct operation.
@@ -52,6 +52,8 @@ release. A freeze will only be made after the tester confirms correct operation.
 Board detection is automatic: on every (re)connect attempt, the gateway scans
 for any known board's advertised BLE name and connects to whichever one it
 finds, with no build-time board selection needed.
+
+This diagnostic beta adds one same-peer connection retry without early MTU exchange after a failed normal attempt, plus detailed error logging. It is **not a confirmed fix** for the reported Certabo connection failure.
 
 ### Spectrum beta: installation and testing
 
@@ -79,8 +81,8 @@ Please verify startup, corner mapping, all-off, gestures, reconnect and King/Pho
 moves on real hardware. Five automated host test groups and the SuperMini build
 passed. Mono-Certabo hardware regression testing remains part of beta testing.
 
-[Beta notes](docs/beta/spectrum-20261025/README.md) and
-[matching source archive](docs/beta/spectrum-20261025/source.zip) accompany the
+[Beta notes](docs/beta/spectrum-20261025-ble-compat/README.md) and
+[matching source archive](docs/beta/spectrum-20261025-ble-compat/source.zip) accompany the
 release. The active repository source is updated too. Stable v11 is unchanged;
 the previous beta remains archived. No new freeze until tester confirmation.
 

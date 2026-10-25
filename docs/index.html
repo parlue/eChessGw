@@ -80,7 +80,7 @@
   </div>
 
   <details class="installer" id="spectrum-beta">
-    <summary><strong>Beta: Certabo Spectrum — 2026-10-25</strong></summary>
+    <summary><strong>Beta: Certabo / Spectrum — BLE-Diagnose 2026-10-25</strong></summary>
     <p>Test firmware for <strong>ESP32-C3 SuperMini only</strong>, built from the
       current development version. Adds the Spectrum 81-LED RGB protocol,
       with red LEDs at 80% brightness. Hardware verification is pending.</p>
@@ -90,12 +90,13 @@
     <p>Spectrum detection uses piece-chip signatures and a repeated packet-size fallback.
       Colour and brightness are selectable with extra-queen gestures (see beta notes). Please test
       startup, corner mapping, all-off, and King/Phoenix move indications.</p>
-    <esp-web-install-button manifest="beta/spectrum-20261025/manifest.json">
+    <esp-web-install-button manifest="beta/spectrum-20261025-ble-compat/manifest.json">
     </esp-web-install-button>
+    <p><strong>Diagnostic build, not a confirmed fix:</strong> after a failed BLE connection, retries once without an initial MTU exchange and logs detailed error codes. Please export the gateway log after testing.</p>
     <p>You can reinstall the stable release above at any time.</p>
     <p><a href="anleitungen/eChessGateway_Certabo_Spectrum_Log.pdf">Log-Aufzeichnung: bebilderte Anleitung (PDF, Deutsch)</a></p>
-    <p><a href="beta/spectrum-20261025/README.md">Beta notes</a> ·
-      <a href="beta/spectrum-20261025/source.zip">Corresponding source</a></p>
+    <p><a href="beta/spectrum-20261025-ble-compat/README.md">Beta notes</a> ·
+      <a href="beta/spectrum-20261025-ble-compat/source.zip">Corresponding source</a></p>
   </details>
 
   <h2>Installation</h2>

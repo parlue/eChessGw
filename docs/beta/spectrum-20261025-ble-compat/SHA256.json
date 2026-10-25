@@ -1,0 +1,9 @@
+{
+  "boot_app0.bin": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0",
+  "bootloader.bin": "30d47ab1f344cfa69f6b2f718ffa72fc7baea6db047eaabefea162db29e6821c",
+  "firmware.bin": "f2c5bc80f87020d06352789f22779554eb1d8ff9f82d75abcd65362eee024726",
+  "manifest.json": "ca00a712c5056da50b766ec310242962e7b7ae99655ed358f6be0c027c2fccf8",
+  "partitions.bin": "148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1",
+  "README.md": "3a5bfdf1155cac007e26322d374474cb0374bbeee770226190a6767be44ca66a",
+  "source.zip": "93fd82a46c394449a2263f259cbca19c051813fc9cee32b97eb795f7acedbb88"
+}
