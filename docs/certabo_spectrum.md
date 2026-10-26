@@ -1,25 +1,47 @@
-﻿# Spectrum-Abgleich mit eChessTactics (24.10.2026)
+ï»¿# Spectrum-Abgleich mit eChessTactics (24.10.2026)
 
 Entwicklungsstand esp32-c3-supermini. Frozen-Versionen, andere Bretttreiber und
 King/Phoenix-Kabelprotokoll bleiben unveraendert.
 
-Erkennung: BLE-Namen Certabo oder Spectrum, danach NUS-Servicepruefung.
-Mindestens acht IDs mit 2,0 und keine 93/94 erkennen Spectrum; mindestens acht
-93/94 und keine 2,0 erkennen Mono-Certabo. Bis Neuverbindung fest; Vorrang vor L/D.
-Erst nach vollstaendigem Stellungsframe werden LEDs gesendet.
+## Gateway-Erkennung (26.10.2026)
 
-Fallback auf Nutzerwunsch: drei originale BLE-Notifications mit exakt 64 Byte
-und ':' am Anfang plus drei vollstaendige Stellungsframes, ohne bisherige 93/94.
-Spaetere eindeutige Tag-Klassifikation hat Vorrang. Das ist die in CynusClient
-protokollierte Paketgroesse, NICHT die ausgehandelte MTU! Interne RX-Queue-Stuecke
-werden nicht als Notifications gezaehlt. L/D bleibt sonst als bisheriger Hinweis.
-Diese Merkmale stammen aus getesteten Chips/Firmware, keine universelle Garantie.
+In eChessTactics wird Spectrum explizit ausgewaehlt. Automatische Erkennung
+betrifft hier ausschliesslich das Gateway. Figuren koennen auf beiden Brettern
+verwendet werden; kein ID-Byte, Praefix oder gespeichertes Figurenarchiv darf
+ueber den LED-Treiber entscheiden.
 
-Nur tag-bestaetigtes Spectrum benutzt den App-Rauschfilter: echte 2,0-Tags und
-Nullwerte passieren sofort; andere Werte sind Rauschen. Vorheriger Tag wird
-maximal drei verrauschte Scans gehalten, danach leer. Unbekannte echte Tags und
-Duplikate werden weiter verworfen. Paket-Fallback allein aktiviert diesen
-praefixabhaengigen Filter nicht.
+BLE-Namen Certabo oder Spectrum finden Kandidaten; danach NUS-Servicepruefung.
+Die MTU-Anforderung bleibt unveraendert 256. Ausgewertet werden ausschliesslich
+originale BLE-Notifications und eigenstaendige Protokollmarker:
+
+- D: positiver RGB-Hinweis; L allein unterscheidet die Module nicht, da auch
+  Spectrum L senden kann. Buchstaben innerhalb von Stellungen/Diagnosetext
+  werden nicht als Marker gelesen.
+- Ohne D: mindestens drei vollstaendige Stellungen und drei originale
+  Positionsstart-Notifications (erstes Byte ':'). Exakt 64 Byte kennzeichnet
+  das beobachtete Spectrum-Modul; mehr als 64 Byte das klassische Modul.
+- Widerspruechliche Groessenprofile oder D zusammen mit breitem Profil sperren
+  LED-Ausgaben. Unbekannte Profile bleiben unentschieden, ohne Zeit-Default.
+- Auch bei D wird vor der ersten vollstaendigen Stellung nichts geschrieben.
+
+Die drei letzten vollstaendigen Anfangsstellungen werden begrenzt im RAM
+gepuffert und nach der Entscheidung in Reihenfolge ans Einlernen uebergeben.
+Bei laenger unentscheidbarem Stream werden aeltere Frames ersetzt (960 Byte
+Nutzdaten, kein unbegrenzter Puffer). Queue-Verlust verwirft Typ-Evidenz und
+Puffer; defekte Frames verwerfen gepufferte Kalibrierungssamples.
+Interne 128-Byte-Queue-Stuecke gelten niemals als eigene BLE-Notifications.
+
+**Grenze:** Die Paketgroessen sind Fingerabdruecke der beobachteten Module,
+kein universell zugesichertes Modellkennzeichen. Senden andere Firmwarestaende
+beider Module identische Marker und Paketgroessen, ist eine sichere automatische
+Unterscheidung daraus nicht moeglich; dann wird ein explizites Modellmerkmal
+oder eine Gateway-Auswahl benoetigt. Hardwarepruefung beider Module steht aus.
+
+Der alte Spectrum-Rauschfilter mit festem 2,0-Praefix ist entfernt. Wie beim
+Certabo gelten die sieben Kalibrierungssamples und danach die eingelernten IDs:
+Unbekannte oder doppelte IDs halten die gesamte Stellung zurueck und werden
+niemals in leere Felder verwandelt. Das unterstuetzt dieselben Figuren auf
+beiden Brettern ohne falsche Bretttyp-Zuordnung.
 
 34 Figuren bei jeder Verbindung neu einlernen: Grundstellung plus weisse Dame
 d3, schwarze Dame d6. Archivierte IDs werden nie fuer die Live-Kalibrierung geladen.
@@ -48,6 +70,6 @@ color/bright. Gleiche gehaltene Geste speichert nur einmal; ungueltige oder
 veraltete Scans verhindern die ausstehende Uebernahme. Andere Bretter unveraendert.
 
 Tests: tools/test_spectrum_alignment.cmd. Build: pio run -e esp32-c3-supermini.
-Hardware noch pruefen: Erkennung, Fallback, Kalibrierung, alle LEDs aus, Eckmapping,
+Hardware noch pruefen: Erkennung beider Transportprofile, Kalibrierung, alle LEDs aus, Eckmapping,
 Gesten samt Wiederverbindung, King/Phoenix-Zuege, Mono-Regression.
 Kein Flash, Freeze oder Webflasher-Update durch diesen lokalen Abgleich.

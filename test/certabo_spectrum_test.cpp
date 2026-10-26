@@ -1,8 +1,8 @@
 #include "certabo_led_identity.h"
 #include "certabo_spectrum_leds.h"
-#include "certabo_spectrum_input.h"
 #include "certabo_startup.h"
 #include "certabo_spectrum_settings.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <fstream>
@@ -17,10 +17,6 @@ int main(int argc,char** argv) {
   assert(id.type()==LedType::Unknown);
   feed(id,"DEBUG\r\nLED\r\n:1 D 0 0\r\n");
   assert(id.type()==LedType::Unknown);
-  feed(id,"L"); assert(id.type()==LedType::Unknown);
-  feed(id,"\r\n"); assert(id.type()==LedType::Mono);
-  feed(id,":1 2 3\r\nL\r\n"); assert(id.type()==LedType::Mono);
-  feed(id,"D\r\n"); assert(id.conflict() && id.type()==LedType::Unknown);
   feed(id,"L\r\n"); assert(id.type()==LedType::Unknown);
   id.reset(); feed(id,"D:"); assert(id.type()==LedType::Rgb);
   id.reset(); feed(id,"D"); id.resetPending(); feed(id,"\r\n");
@@ -51,39 +47,75 @@ int main(int argc,char** argv) {
   for(int led=0;led<81;++led) assert(out[2+led*3]==204); // no summed brightness
   memset(mask,0,8); certabo::spectrum::encode(mask,out);
   for(int i=2;i<245;++i) assert(out[i]==0);
-  if(argc>1) {
-    std::ifstream f(argv[1],std::ios::binary); assert(f.good());
-    id.reset(); char c; while(f.get(c)) id.feed(static_cast<uint8_t>(c));
-    assert(id.type()==LedType::Mono && !id.conflict());
-  }
-  puts("PASS: Spectrum 247-byte red80 frames, all 64 squares, PDF corners, passive identity, reconnect/conflict and mono capture");
+  (void)argc; (void)argv;
+  // Identical figures on either bridge: neither 2,0 nor 93/94 nor any other
+  // prefix is consulted. Exercise empty, mixed and arbitrary raw IDs as well.
   certabo::RawBoard rgb{};
-  for(size_t i=0;i<8;++i) rgb[i]={{2,0,1,0,static_cast<uint8_t>(i+1)}};
-  id.reset();feed(id,"L\r\n");assert(!id.positionSeen());
-  id.observe(rgb);assert(id.positionSeen() && id.spectrum() && id.type()==LedType::Rgb);
-  feed(id,"D\r\nL\r\n");assert(id.type()==LedType::Rgb && !id.conflict());
-  certabo::RawBoard mono=rgb;
-  for(auto& p:mono) if(p!=certabo::PieceId{})p[0]=93;
-  id.observe(mono);assert(id.spectrum()); // locked during connection
-  id.reset();feed(id,"D\r\n");id.observe(mono);assert(id.type()==LedType::Mono && !id.spectrum());
-  for(auto& p:mono) if(p!=certabo::PieceId{})p[0]=94;
-  id.reset();id.observe(mono);assert(id.type()==LedType::Mono);
-  auto mixed=rgb;mixed[8]={{93,0,0,1,2}};
-  id.reset();feed(id,"L\r\n");id.observe(mixed);assert(id.type()==LedType::Unknown);
-  auto sparse=rgb;sparse[7]={};id.observe(sparse);assert(id.type()==LedType::Unknown);
-  id.observe(rgb);assert(id.spectrum());
-  id.reset();assert(!id.spectrum() && !id.positionSeen() && id.type()==LedType::Unknown);
-  certabo::spectrum::InputFilter filter;
-  auto raw=rgb;raw[20]={{128,0,0,0,0}};
-  assert(filter.apply(raw)[20]==certabo::PieceId{});
-  raw[0]={{252,0,0,0,0}};
-  for(int n=0;n<3;++n)assert(filter.apply(raw)[0]==rgb[0]);
-  assert(filter.apply(raw)[0]==certabo::PieceId{});
-  raw[0]=rgb[0];assert(filter.apply(raw)[0]==rgb[0]);
-  raw[0]={};assert(filter.apply(raw)[0]==certabo::PieceId{}); // true empty immediately
-  raw[0]=rgb[0];filter.apply(raw);filter.reset();raw[0]={{128,0,0,0,0}};
-  assert(filter.apply(raw)[0]==certabo::PieceId{}); // reconnect cannot retain a tag
-  raw[0]={{2,0,99,99,99}};assert(filter.apply(raw)[0]==raw[0]); // unknown tag stays unknown
+  for(int prefix : {0,2,7,93,94,128,255}) {
+    for(size_t i=0;i<64;++i) rgb[i]={{static_cast<uint8_t>(prefix),0,1,0,static_cast<uint8_t>(i)}};
+    for(size_t length : {size_t(64),size_t(253)}) {
+      id.reset(); feed(id,"L\r\n");
+      certabo::RawBoard replay{};
+      for(int n=0;n<3;++n) {
+        id.notification(length,':'); id.observe(rgb);
+        if(n<2) { assert(id.type()==LedType::Unknown); assert(!id.pop(replay)); }
+      }
+      assert(id.type()==(length==64 ? LedType::Rgb : LedType::Mono));
+      assert(id.buffered()==3);
+      for(int n=0;n<3;++n) { assert(id.pop(replay)); assert(replay==rgb); }
+      assert(!id.pop(replay));
+      id.streamGap(); assert(id.type()==LedType::Unknown && !id.positionSeen());
+      assert(!id.pop(replay));
+    }
+  }
+  // A first stream must not be mistaken for three internal queue chunks.
+  id.reset(); id.notification(253,':');
+  for(int i=0;i<3;++i) { id.notification(0,':'); id.observe(rgb); }
+  assert(id.type()==LedType::Unknown);
+  // Unknown profiles stay dark; the bounded buffer retains the last 3 frames.
+  id.reset();
+  for(int i=0;i<10;++i) { rgb[0][4]=static_cast<uint8_t>(i); id.notification(20,':'); id.observe(rgb); }
+  assert(id.buffered()==3 && id.type()==LedType::Unknown);
+  feed(id,"D\r\n"); certabo::RawBoard replay{};
+  for(int i=7;i<10;++i) { assert(id.pop(replay)); assert(replay[0][4]==i); }
+  assert(!id.pop(replay));
+  // Standalone D is RGB evidence; L may be emitted by Spectrum as well.
+  id.reset(); feed(id,"L\r\nD\r\nL\r\n");
+  id.observe(rgb); assert(id.spectrum());
+  id.notification(253,':'); assert(id.conflict() && id.type()==LedType::Unknown);
+  assert(!id.pop(replay));
+  // Mixed transport profiles fail closed, regardless of marker or IDs.
+  id.reset(); id.notification(64,':'); id.notification(253,':');
+  for(int i=0;i<3;++i) id.observe(rgb);
+  assert(id.conflict() && id.type()==LedType::Unknown);
+  id.reset(); for(int i=0;i<4;++i) {id.notification(64,'2'); id.observe(rgb);}
+  assert(id.type()==LedType::Unknown);
+  // Exercise the real decimal stream parser and actual original notification
+  // boundaries, using exactly the same piece bytes for both bridge profiles.
+  std::string wire=":";
+  for(const auto& piece:rgb) for(auto value:piece) wire+=std::to_string(value)+" ";
+  wire+="\r\n";
+  for(size_t payload : {size_t(64),size_t(253)}) {
+    id.reset(); certabo::Parser parser; size_t delivered=0;
+    for(int scan=0;scan<4;++scan) {
+      for(size_t offset=0;offset<wire.size();offset+=payload) {
+        const size_t n=std::min(payload,wire.size()-offset);
+        id.notification(n,static_cast<uint8_t>(wire[offset]));
+        for(size_t j=0;j<n;++j) {
+          if(parser.feed(static_cast<uint8_t>(wire[offset+j]))==certabo::ParseResult::Position) {
+            id.observe(parser.board());
+            if(scan<2) assert(id.type()==LedType::Unknown);
+            while(id.pop(replay)) { assert(replay==rgb); ++delivered; }
+          }
+        }
+      }
+    }
+    assert(delivered==4);
+    assert(id.type()==(payload==64 ? LedType::Rgb : LedType::Mono));
+  }
+  id.reset();id.observe(rgb);id.discardBuffered();feed(id,"D\r\n");
+  assert(!id.pop(replay)); // malformed frames cannot replay stale samples
+  puts("PASS: ID-independent bridge profiles, initial-frame replay, bounds, gaps, ambiguous streams and reconnect");
   certabo::Startup quiet;quiet.learned();
   for(uint32_t t=0;t<4200;t+=700) {
     quiet.mask(t,rgb,mask,nullptr,true);
@@ -94,26 +126,6 @@ int main(int argc,char** argv) {
   const char* start="rnbqkbnrpppppppp................................PPPPPPPPRNBQKBNR";
   for(int i=0;i<64;++i)startFrame[64-i]=start[i];
   assert(quiet.finish(startFrame));
-  puts("PASS: app tag detection overrides markers, mixed/sparse/reconnect, Spectrum noise hold and quiet startup");
-  id.reset();certabo::RawBoard foreign{};
-  for(int i=0;i<8;++i)foreign[i]={{7,0,0,0,static_cast<uint8_t>(i+1)}};
-  for(int i=0;i<2;++i){id.notification(64,':');id.observe(foreign);assert(!id.spectrum());}
-  id.notification(64,':');id.observe(foreign);assert(id.packetFallback() && !id.spectrumTags());
-  id.observe(mono);assert(id.type()==LedType::Mono && !id.packetFallback());
-  // Mono boards with unfamiliar tags must not become RGB due to packet size.
-  id.reset();feed(id,"L\r\n");
-  for(int i=0;i<8;++i){id.notification(64,':');id.observe(foreign);}
-  assert(id.type()==LedType::Mono && !id.spectrum());
-  // A late explicit marker also supersedes an earlier packet-only guess.
-  id.reset();for(int i=0;i<3;++i){id.notification(64,':');id.observe(foreign);}
-  assert(id.packetFallback());feed(id,"L\r\n");
-  assert(id.type()==LedType::Mono && !id.spectrum());
-  id.observe(rgb);assert(id.spectrumTags() && id.type()==LedType::Rgb);
-  id.reset();feed(id,"L\r\nD\r\n");
-  for(int i=0;i<3;++i){id.notification(64,':');id.observe(foreign);}
-  assert(id.conflict() && id.type()==LedType::Unknown);
-  id.reset();for(int i=0;i<4;++i){id.notification(128,':');id.observe(foreign);}assert(!id.spectrum());
-  id.reset();for(int i=0;i<4;++i){id.notification(64,'2');id.observe(foreign);}assert(!id.spectrum());
   certabo::spectrum::Settings settings;uint8_t rgbValues[3];settings.rgb(rgbValues);
   assert(rgbValues[0]==204 && rgbValues[1]==0 && rgbValues[2]==0);
   char gesture[65]="RNBQKBNRPPPPPPPP................................pppppppprnbqkbnr";
@@ -129,5 +141,5 @@ int main(int argc,char** argv) {
   memset(mask,255,8);certabo::spectrum::encode(mask,out,255,85,255);
   for(int i=2;i<244;++i)assert(!(out[i]==255 && out[i+1]==85));
   assert(out[0]==255 && out[1]==85 && out[245]==13 && out[246]==10);
-  puts("PASS: notification fallback with tag priority, settings gestures, stale scan guard and reserved RGB bytes");
+  puts("PASS: quiet startup, settings gestures, stale scan guard and reserved RGB bytes");
 }

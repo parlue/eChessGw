@@ -2,7 +2,6 @@
 #include "certabo_protocol.h"
 #include "certabo_led_identity.h"
 #include "certabo_spectrum_leds.h"
-#include "certabo_spectrum_input.h"
 #include "certabo_spectrum_settings.h"
 #include "certabo_startup.h"
 #include "certabo_move_lights.h"
@@ -32,7 +31,6 @@ uint32_t nextSequence = 0;  // BLE task producer only
 uint32_t expectedSequence = 0;  // loop consumer only
 certabo::Parser parser;
 certabo::LedIdentity ledIdentity;
-certabo::spectrum::InputFilter spectrumInput;
 certabo::spectrum::Settings spectrumSettings;
 bool spectrumSettingsLoaded=false;
 bool spectrumGesture=false, spectrumPreview=false;
@@ -410,7 +408,6 @@ bool certaboConnect(const NimBLEAddress& address) {
   diagnosticBytes = 0;
   parser.reset();
   ledIdentity.reset();
-  spectrumInput.reset();
   spectrumSettings.resetGesture();
   spectrumGesture=spectrumPreview=false;
   spectrumSettingsLoaded=false;
@@ -438,11 +435,11 @@ bool certaboConnect(const NimBLEAddress& address) {
   const bool connected = client->connect(address);
   if (!connected) {
     const int error = client->getLastError();
-    Serial.printf("[CERTABO] BLE normal failed: rc=%d (%s), elapsed=%lu ms, link=%u; build=ble256-v11compare-20261025\r\n",
+    Serial.printf("[CERTABO] BLE normal failed: rc=%d (%s), elapsed=%lu ms, link=%u; build=ble256-transport-id-20261026\r\n",
                   error, NimBLEUtils::returnCodeToString(error),
                   static_cast<unsigned long>(millis()-connectStarted), client->isConnected());
   } else {
-    Serial.printf("[CERTABO] BLE normal connected in %lu ms, MTU=%u; build=ble256-v11compare-20261025\r\n",
+    Serial.printf("[CERTABO] BLE normal connected in %lu ms, MTU=%u; build=ble256-transport-id-20261026\r\n",
                   static_cast<unsigned long>(millis()-connectStarted),client->getMTU());
   }
   NimBLEDevice::setMTU(previousMtu);
@@ -489,8 +486,8 @@ void certaboPoll() {
   while (certaboIsConnected() && xQueueReceive(queue, &packet, 0) == pdTRUE) {
     if (packet.sequence != expectedSequence) {
       parser.resetStream();
-      ledIdentity.resetPending();
-      spectrumInput.reset();
+      ledIdentity.streamGap();
+      haveSentLeds=false;
       spectrumSettings.resetGesture();spectrumGesture=false;
       calibration.resetWindow();
       Serial.println("[CERTABO] RX gap; discarding partial frame and calibration samples");
@@ -512,30 +509,35 @@ void certaboPoll() {
       ledIdentity.feed(packet.data[i]);
       const auto result = parser.feed(packet.data[i]);
       if (ledIdentity.conflict() && !oldConflict)
-        Serial.println("[CERTABO] conflicting L/D identity; LED writes disabled until reconnect");
-      else if (ledIdentity.type() != oldLedType)
-        Serial.printf("[CERTABO] %s LED driver selected from passive marker; MTU=%u\r\n",
+        Serial.println("[CERTABO] conflicting BLE identity evidence; LED writes disabled");
+      else if (ledIdentity.type() != oldLedType) {
+        haveSentLeds=false;
+        Serial.printf("[CERTABO] %s LED evidence updated from passive marker; MTU=%u\r\n",
                       ledIdentity.type()==certabo::LedType::Rgb ? "Spectrum red 80%" : "mono",
                       client->getMTU());
+      }
       if (result == certabo::ParseResult::Position) {
         const auto before = ledIdentity.type();
-        const bool wasSpectrum = ledIdentity.spectrum();
         ledIdentity.observe(parser.board());
-        if(before!=ledIdentity.type() || wasSpectrum!=ledIdentity.spectrum()) {
+        if(before!=ledIdentity.type()) {
           haveSentLeds=false;
-          Serial.printf("[CERTABO] detection: %s\r\n",
-              ledIdentity.spectrumTags() ? "Spectrum tag prefix (2,0)" :
-              ledIdentity.packetFallback() ? "Spectrum 64-byte notification fallback (not MTU)" :
-              ledIdentity.type()==certabo::LedType::Mono ? "mono Certabo" : "undetermined");
+          Serial.printf("[CERTABO] transport detection: %s; MTU=%u\r\n",
+              ledIdentity.spectrum() ? "Spectrum (marker / repeated 64-byte starts)" :
+              ledIdentity.type()==certabo::LedType::Mono ? "mono (repeated wide starts)" : "undetermined",
+              client->getMTU());
         }
-        if(ledIdentity.spectrumTags()) position(spectrumInput.apply(parser.board()));
-        else position(parser.board());
+        certabo::RawBoard buffered;
         // Certabo scans can arrive back-to-back in one BLE queue drain.
         // Publish the LED state after each complete scan so a later scan
         // cannot hide an intermediate move indication until the drain ends.
-        if (certaboIsConnected()) sendLeds();
+        while(ledIdentity.pop(buffered)) {
+          position(buffered);
+          if (certaboIsConnected()) sendLeds();
+        }
       }
-      else if (result == certabo::ParseResult::Invalid) { ++badFrames; calibration.resetWindow(); }
+      else if (result == certabo::ParseResult::Invalid) {
+        ++badFrames; calibration.resetWindow(); ledIdentity.discardBuffered();
+      }
       else if (result == certabo::ParseResult::OccupancyOnly && !occupancyReported) {
         Serial.println("[CERTABO] occupancy-only/Sentio data is unsupported; piece-ID board required");
         occupancyReported = true;

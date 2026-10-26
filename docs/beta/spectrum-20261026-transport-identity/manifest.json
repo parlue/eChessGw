@@ -1,0 +1,28 @@
+{
+  "name": "eChessGw Certabo / Spectrum BETA (transport identity)",
+  "version": "2026-10-26-transport-identity",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C3",
+      "parts": [
+        {
+          "path": "bootloader.bin",
+          "offset": 0
+        },
+        {
+          "path": "partitions.bin",
+          "offset": 32768
+        },
+        {
+          "path": "boot_app0.bin",
+          "offset": 57344
+        },
+        {
+          "path": "firmware.bin",
+          "offset": 65536
+        }
+      ]
+    }
+  ]
+}

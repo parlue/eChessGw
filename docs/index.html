@@ -80,23 +80,23 @@
   </div>
 
   <details class="installer" id="spectrum-beta">
-    <summary><strong>Beta: Certabo / Spectrum — MTU 256 / V11-Abgleich</strong></summary>
+    <summary><strong>Beta: Certabo / Spectrum — 2026-10-26 / ID-independent</strong></summary>
     <p>Test firmware for <strong>ESP32-C3 SuperMini only</strong>, built from the
       current development version. Adds the Spectrum 81-LED RGB protocol,
       with red LEDs at 80% brightness. Hardware verification is pending.</p>
     <p>Piece IDs are learned again at startup: use the normal starting position
       plus a white queen on d3 and a black queen on d6. After confirmation,
       remove the two extra queens.</p>
-    <p>Spectrum detection uses piece-chip signatures and a repeated packet-size fallback.
+    <p>Board detection uses protocol markers and repeated original notification sizes; never piece IDs. Initial positions are buffered until selection.
       Colour and brightness are selectable with extra-queen gestures (see beta notes). Please test
       startup, corner mapping, all-off, and King/Phoenix move indications.</p>
-    <esp-web-install-button manifest="beta/spectrum-20261025-v11-compare256/manifest.json">
+    <esp-web-install-button manifest="beta/spectrum-20261026-transport-identity/manifest.json">
     </esp-web-install-button>
-    <p><strong>Diagnostic build, not a confirmed fix:</strong> uses the original V11 connection call with MTU 256. Spectrum settings load only after RGB detection; detailed connection errors are logged. Please export the gateway log after testing.</p>
+    <p><strong>Diagnostic build, not a confirmed fix:</strong> removes piece-ID-dependent detection and filtering. MTU remains 256. Unknown or conflicting transport profiles keep LED writes disabled; real-board verification is pending. Please export the gateway log after testing.</p>
     <p>You can reinstall the stable release above at any time.</p>
     <p><a href="anleitungen/eChessGateway_Certabo_Spectrum_Log.pdf">Log-Aufzeichnung: bebilderte Anleitung (PDF, Deutsch)</a></p>
-    <p><a href="beta/spectrum-20261025-v11-compare256/README.md">Beta notes</a> ·
-      <a href="beta/spectrum-20261025-v11-compare256/source.zip">Corresponding source</a></p>
+    <p><a href="beta/spectrum-20261025-v11-compare256/README.md">Previous beta (retained)</a> · <a href="beta/spectrum-20261026-transport-identity/README.md">Beta notes</a> ·
+      <a href="beta/spectrum-20261026-transport-identity/source.zip">Corresponding source</a></p>
   </details>
 
   <h2>Installation</h2>

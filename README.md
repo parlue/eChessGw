@@ -35,7 +35,7 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 
 ## Supported e-boards
 
-**Certabo / Spectrum beta (2026-10-25, V11 comparison / MTU 256):** The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta)
+**Certabo / Spectrum beta (2026-10-26, ID-independent / MTU 256):** The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta)
 now offers a separate test build for **ESP32-C3 SuperMini**. Stable v11 remains
 available unchanged. This beta is the current development build, not a frozen
 release. A freeze will only be made after the tester confirms correct operation.
@@ -47,7 +47,7 @@ release. A freeze will only be made after the tester confirms correct operation.
 | ManyaCynus (camera-vision chess robot) | Working -- ManyaCynus's own line-based BLE protocol translated to/from Mode B; decodes the chess computer's own LED move suggestions and commands ManyaCynus's arm to execute them, including castling, en passant and pawn promotion |
 | Certabo (Bluetooth LE / Nordic UART, mono-LED boards) | Working -- piece chips are read in at every start ([see below](#certabo-reading-in-the-pieces)), then the board's own LEDs show move suggestions from a MILLENNIUM King, Mephisto Phoenix, BearChess and Chessnut clients |
 | iChessOne | Untested on real hardware -- driver built from the vendor's own documented BLE protocol (Nordic UART Service), not yet confirmed against a real unit; LED colour and brightness can be chosen by gesture ([see below](#ichessone-led-colour-and-brightness)) |
-| Tabutronic Spectrum / Certabo RGB | Beta only -- separate 81-LED RGB encoder, red at 80% brightness; automatic chip/packet identification and colour/brightness gestures; gateway hardware validation pending |
+| Tabutronic Spectrum / Certabo RGB | Beta only -- separate 81-LED RGB encoder, red at 80% brightness; protocol/transport identification without piece IDs and colour/brightness gestures; gateway hardware validation pending |
 
 Board detection is automatic: on every (re)connect attempt, the gateway scans
 for any known board's advertised BLE name and connects to whichever one it
@@ -67,8 +67,10 @@ normal 32-piece position plus a white queen on d3 and a black queen on d6.
 After calibration confirmation, remove the two extra queens. Piece IDs are
 learned at each startup; the beta does not reuse another user's archived IDs.
 
-LED protocol selection uses chip signatures from the working eChessTactics
-integration, with repeated 64-byte position notifications as fallback (not MTU).
+LED protocol selection uses passive markers and repeated original notification
+sizes, never piece IDs. Up to three complete initial positions are buffered.
+MTU stays 256. Unknown/conflicting profiles disable LED output; observed packet
+sizes are bridge firmware fingerprints, not universal model identifiers.
 See [detailed detection and filtering notes](docs/certabo_spectrum.md).
 
 After calibration, place the extra white queen on the otherwise correct starting
@@ -81,10 +83,10 @@ Please verify startup, corner mapping, all-off, gestures, reconnect and King/Pho
 moves on real hardware. Five automated host test groups and the SuperMini build
 passed. Mono-Certabo hardware regression testing remains part of beta testing.
 
-[Beta notes](docs/beta/spectrum-20261025-v11-compare256/README.md) and
-[matching source archive](docs/beta/spectrum-20261025-v11-compare256/source.zip) accompany the
+[Beta notes](docs/beta/spectrum-20261026-transport-identity/README.md) and
+[matching source archive](docs/beta/spectrum-20261026-transport-identity/source.zip) accompany the
 release. The active repository source is updated too. Stable v11 is unchanged;
-the previous beta remains archived. No new freeze until tester confirmation.
+the [previous beta](docs/beta/spectrum-20261025-v11-compare256/README.md) remains archived unchanged. No new freeze until tester confirmation.
 
 ### ManyaCynus special cases
 

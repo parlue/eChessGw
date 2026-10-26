@@ -1,5 +1,9 @@
 # Certabo: eingefrorene V11 gegen Spectrum-Entwicklung, 25.10.2026
 
+> Nachtrag 26.10.2026: Die unten historisch beschriebene Tagfamilien-Erkennung
+> und der Praefix-Rauschfilter wurden entfernt. Figuren sind zwischen Brettern
+> austauschbar. Aktueller Stand: [certabo_spectrum.md](certabo_spectrum.md).
+
 Referenz ist die echte eingefrorene Umgebung `esp32-c3-superminiV11_Certabo`,
 mit `gateway_v11_certabo.cpp`, `certabo_board_v11.cpp` und den anderen
 `*_v11`-Kopien. Nicht nur ein beliebiger älterer Entwicklungsstand.
