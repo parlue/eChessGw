@@ -260,7 +260,7 @@ void poll(uint32_t uartRxCounter) {
   if (flushOnce()) lastFlushAt = millis();
 }
 
-// Rebuild diagnostic timestamp for the 2026-10-27 queen-layout beta.
+// Rebuild diagnostic timestamp for the 2026-10-27 early-setup beta.
 const char* buildStamp() { return __DATE__ " " __TIME__; }
 
 // ---- Reader ----

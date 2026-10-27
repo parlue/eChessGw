@@ -35,7 +35,7 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 
 ## Supported e-boards
 
-**Certabo / Spectrum beta (2026-10-27, queen setup / MTU 256):**
+**Certabo / Spectrum beta (2026-10-27, early setup help / MTU 256):**
 The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta) offers the
 tested build for ESP32-C3 SuperMini. Stable v11 and prior betas are retained.
 No freeze until physical tester confirmation.
@@ -62,14 +62,18 @@ Use the normal 32-piece position plus two extra queens:
 | Certabo (normal LEDs) | d3 | d6 |
 | Spectrum (81 RGB LEDs) | e3 | e6 |
 
-**No LED writes occur until the 34 unique IDs have been learned over seven
-scans.** This first setup stage deliberately has no mismatch LEDs. The chosen
+**Early setup LEDs:** one unique extra chip stable on either selection square
+for three full scans selects the driver. Missing, extra or duplicate chips then
+light after two real scans and clear immediately when corrected. All 34 unique
+IDs and seven-scan majority remain required before confirmation or play.
+Swapped piece types cannot be detected during initial learning. The chosen
 driver then blinks the four centre squares three times; Spectrum uses blue 80%.
 Remove both extra queens. Normal play starts only at the correct starting setup.
 
 The explicit choice replaces unreliable packet-size/marker heuristics. Figure
 IDs are interchangeable and never determine the model. Each connection learns
-anew; archived IDs are not reused. Mixed/incomplete setups do not enable LEDs.
+anew; archived IDs are not reused. Mixed choices stay dark before selection. Once selected, the driver stays fixed
+until reconnect, and opposite choice squares are reported as setup errors.
 BLE connection code, MTU256, King/Phoenix processing and stable v11 are unchanged.
 
 Spectrum uses 247-byte RGB frames, four corners per square. Startup confirmation
@@ -78,14 +82,14 @@ Gestures: normal position plus the white spare queen held for one second on
 g3/g4/g5/g6 selects red/blue/green/orange; h3/h4/h5/h6 selects 25/50/75/100%.
 Remove the queen after confirmation. The configuration is not forwarded as a move.
 
-Seven host test groups and the SuperMini build passed. Physical tests on both
+Eight host test groups and the SuperMini build passed. Physical tests on both
 boards remain pending. This corrects driver selection and a learning gate; it
 does not establish the cause of a radio failure before notification subscription.
 
-[Beta notes](docs/beta/spectrum-20261027-queen-layout/README.md),
-[matching source](docs/beta/spectrum-20261027-queen-layout/source.zip),
+[Beta notes](docs/beta/spectrum-20261027-early-setup/README.md),
+[matching source](docs/beta/spectrum-20261027-early-setup/source.zip),
 [detailed startup](docs/certabo_spectrum.md), and the
-[archived previous beta](docs/beta/spectrum-20261026-transport-identity/README.md).
+[archived previous beta](docs/beta/spectrum-20261027-queen-layout/README.md).
 
 ### ManyaCynus special cases
 

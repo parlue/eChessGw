@@ -144,10 +144,23 @@ void position(const certabo::RawBoard& board) {
   // validated positions, just like the position sent to either host.
   if (!calibration.ready()) latestBoard = board;
   if (!calibration.ready()) {
+    const auto before=ledIdentity.type();
+    ledIdentity.observeSetup(board);
+    if(before!=ledIdentity.type()) {
+      calibration.resetWindow();
+      haveSentLeds=false;
+      Serial.printf("[CERTABO] early setup selected %s; setup LEDs enabled, still learning 34 IDs\r\n",
+                    ledIdentity.spectrum()?"Spectrum e3/e6":"Certabo d3/d6");
+    }
+    if(ledIdentity.type()==certabo::LedType::Unknown) {calibration.resetWindow();return;}
+    startup.observeSetup(board,ledIdentity.type());
+    startup.mask(millis(),board,wantedLeds,nullptr,false);
+    if(ledIdentity.conflictingSetup(board)) {calibration.resetWindow();return;}
     if (!calibration.observe(board, true, true)) return;
+    if(calibration.setupType()!=ledIdentity.type()) {calibration.reset();return;}
     ledIdentity.observe(calibration);
     haveSentLeds=false;
-    Serial.printf("[CERTABO] setup selected %s; LEDs enabled after 34-ID calibration\r\n",
+    Serial.printf("[CERTABO] setup confirmed %s; 34-ID calibration complete\r\n",
                   ledIdentity.spectrum() ? "Spectrum e3/e6 (blue 80%)" : "Certabo d3/d6");
     Serial.printf("[CERTABO] calibration complete: %u IDs; remove extra queens\r\n",
                   static_cast<unsigned>(calibration.count()));
@@ -306,7 +319,7 @@ void loadSpectrumSettings() {
 void sendLeds() {
   const auto type = ledIdentity.type();
   // Never test an unknown board by sending the other model's LED format.
-  if (!calibration.ready() || type == certabo::LedType::Unknown) return;
+  if (type == certabo::LedType::Unknown) return;
   if (type == certabo::LedType::Rgb) loadSpectrumSettings();
   const uint32_t now = millis();
   uint8_t display[8];
@@ -441,11 +454,11 @@ bool certaboConnect(const NimBLEAddress& address) {
   const bool connected = client->connect(address);
   if (!connected) {
     const int error = client->getLastError();
-    Serial.printf("[CERTABO] BLE normal failed: rc=%d (%s), elapsed=%lu ms, link=%u; build=ble256-queen-layout-20261027\r\n",
+    Serial.printf("[CERTABO] BLE normal failed: rc=%d (%s), elapsed=%lu ms, link=%u; build=ble256-early-setup-20261027\r\n",
                   error, NimBLEUtils::returnCodeToString(error),
                   static_cast<unsigned long>(millis()-connectStarted), client->isConnected());
   } else {
-    Serial.printf("[CERTABO] BLE normal connected in %lu ms, MTU=%u; build=ble256-queen-layout-20261027\r\n",
+    Serial.printf("[CERTABO] BLE normal connected in %lu ms, MTU=%u; build=ble256-early-setup-20261027\r\n",
                   static_cast<unsigned long>(millis()-connectStarted),client->getMTU());
   }
   NimBLEDevice::setMTU(previousMtu);
@@ -479,7 +492,7 @@ bool certaboConnect(const NimBLEAddress& address) {
   ready.store(true);
   Serial.printf("[CERTABO] subscribed, MTU=%u; waiting for pushed positions (no read/handshake)\r\n", client->getMTU());
   if (!calibration.ready()) {
-    Serial.println("[CERTABO] CALIBRATE: normal starting position; Certabo extra queens d3/d6 OR Spectrum e3/e6; LEDs OFF until 7-scan calibration");
+    Serial.println("[CERTABO] CALIBRATE: normal starting position; Certabo extra queens d3/d6 OR Spectrum e3/e6; first stable extra queen enables setup LEDs; 34 IDs required to finish");
   }
   if (calibration.ready()) exportCalibration();
   resetKingLedFrameBaseline();
@@ -492,6 +505,8 @@ void certaboPoll() {
   while (certaboIsConnected() && xQueueReceive(queue, &packet, 0) == pdTRUE) {
     if (packet.sequence != expectedSequence) {
       parser.resetStream();
+      ledIdentity.resetSetupWindow();
+      startup.resetSetupWindow();
       haveSentLeds=false;
       spectrumSettings.resetGesture();spectrumGesture=false;
       calibration.resetWindow();
@@ -510,13 +525,14 @@ void certaboPoll() {
     for (size_t i = 0; i < packet.length; ++i) {
       const auto result = parser.feed(packet.data[i]);
       if (result == certabo::ParseResult::Position) {
-        // Every complete scan reaches learning. The explicit queen layout
-        // selects the LED driver only after successful 34-ID calibration.
+        // Complete scans establish the early queen-square choice and build
+        // the 34-ID map independently of packet sizes or L/D responses.
         position(parser.board());
         if (certaboIsConnected()) sendLeds();
       }
       else if (result == certabo::ParseResult::Invalid) {
         ++badFrames; calibration.resetWindow();
+        ledIdentity.resetSetupWindow();startup.resetSetupWindow();
       }
       else if (result == certabo::ParseResult::OccupancyOnly && !occupancyReported) {
         Serial.println("[CERTABO] occupancy-only/Sentio data is unsupported; piece-ID board required");

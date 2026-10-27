@@ -80,26 +80,26 @@
   </div>
 
   <details class="installer" id="spectrum-beta">
-    <summary><strong>Beta: Certabo / Spectrum — 2026-10-27 / Queen setup</strong></summary>
+    <summary><strong>Beta: Certabo / Spectrum - 2026-10-27 / Early setup help</strong></summary>
     <p>Test firmware for <strong>ESP32-C3 SuperMini</strong>. Select the correct
       LED driver through the extra queens, not through chip IDs or BLE packet sizes.</p>
     <ul>
       <li><strong>Certabo:</strong> normal starting position + white extra queen <strong>d3</strong>, black <strong>d6</strong>.</li>
       <li><strong>Spectrum:</strong> normal starting position + white extra queen <strong>e3</strong>, black <strong>e6</strong>.</li>
     </ul>
-    <p><strong>No setup LEDs until all 34 figures are learned.</strong> Keep the
-      position still for seven scans. The four centre squares then blink three
+    <p><strong>Early setup LEDs after one stable extra queen.</strong> Keep one extra queen still for three full scans. Missing, extra or duplicate
+      chips then light after two scans. All 34 unique chips are still required to finish learning. The four centre squares then blink three
       times (Spectrum: blue 80%). Remove both extra queens when prompted.</p>
-    <esp-web-install-button manifest="beta/spectrum-20261027-queen-layout/manifest.json">
+    <esp-web-install-button manifest="beta/spectrum-20261027-early-setup/manifest.json">
     </esp-web-install-button>
     <p>Spectrum play defaults to blue 80%; saved gesture settings remain available.
       MTU stays 256. Physical testing remains required; no freeze yet.</p>
     <p><strong>Scope:</strong> corrects LED-driver selection and the learning gate;
       it is not a confirmed fix for radio-level failures before connection.</p>
     <p><a href="anleitungen/eChessGateway_Certabo_Spectrum_Log.pdf">Log-Aufzeichnung (PDF, Deutsch)</a></p>
-    <p><a href="beta/spectrum-20261026-transport-identity/README.md">Previous beta (retained)</a> ·
-      <a href="beta/spectrum-20261027-queen-layout/README.md">Beta notes</a> ·
-      <a href="beta/spectrum-20261027-queen-layout/source.zip">Corresponding source</a></p>
+    <p><a href="beta/spectrum-20261027-queen-layout/README.md">Previous beta (retained)</a> |
+      <a href="beta/spectrum-20261027-early-setup/README.md">Beta notes</a> |
+      <a href="beta/spectrum-20261027-early-setup/source.zip">Corresponding source</a></p>
   </details>
 
   <h2>Installation</h2>

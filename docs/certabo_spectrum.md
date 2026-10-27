@@ -12,16 +12,21 @@ ueber eine ausdrueckliche Aufstellentscheidung gewaehlt.
 
 1. BLE verbinden, Nordic-UART-Notifications abonnieren und Stellungsteile
    zusammensetzen. Kein Startkommando und keine LED-Probe senden.
-2. Jede vollstaendige Stellung erreicht die Kalibrierung. Es werden sieben
-   Meldungen mit feldweiser strenger Mehrheit ausgewertet. Alle 32 regulaeren
-   Felder muessen besetzt sein, nur eines der beiden Zusatzdamen-Paare darf
-   besetzt sein, und die 34 IDs muessen eindeutig sein.
-3. Bis zum erfolgreichen Abschluss bleibt der LED-Typ Unknown. sendLeds()
-   verwirft jeden Schreibversuch in diesem Zustand; auch Differenzen beim
-   Aufbau werden in dieser Phase NICHT angezeigt.
-4. Erst die erfolgreiche Kalibrierung legt den Treiber fest. d3/d6 bedeutet
-   Mono, e3/e6 bedeutet Spectrum. Das ist eine Positionswahl durch den Nutzer,
-   keine Klassifikation von Chipnummern.
+2. Zunaechst bleiben LEDs aus. Ein eindeutiger Chip auf d3 ODER d6 waehlt
+   Certabo; ein eindeutiger Chip auf e3 ODER e6 waehlt Spectrum. Derselbe Chip
+   muss auf demselben Feld in drei aufeinanderfolgenden vollstaendigen Scans
+   erscheinen. Bei gleichzeitig besetzten d- und e-Wahlfeldern bleibt die Wahl
+   offen. Chipnummern dienen nur der Stabilitaetspruefung, nie der Modellwahl.
+3. Sobald gewaehlt, zeigt der passende Treiber Aufbaufehler: fehlende,
+   zusaetzliche oder doppelt erkannte Chips. Ein Fehler muss in zwei echten
+   Scans vorkommen; Poll-Aufrufe zaehlen nicht. Korrekturen loeschen sofort.
+   Das gilt auch bei nur einer Zusatzdame oder einer schlecht sitzenden Figur.
+   Spectrum zeigt diese Hilfe blau mit 80 Prozent Helligkeit.
+4. Die Wahl bleibt bis zur Neuverbindung fest. Erst danach beginnt das volle
+   Einlernen: sieben Scans mit feldweiser Mehrheit, 34 eindeutige IDs und das
+   richtige Zusatzdamenpaar. Ein gegenueberliegendes d/e-Wahlfeld setzt das
+   Lernfenster zurueck und wird als Aufbaufehler angezeigt. Um das Modell zu
+   wechseln, neu verbinden. Vor erfolgreichem Einlernen gibt es keine Spielzuege.
 5. Vier Mittelfelder d4/e4/d5/e5 blinken dreimal, 700 ms pro Phase.
    Spectrum verwendet dabei unabhaengig von gespeicherten Gesten Blau 80 %.
 6. Anschliessend zeigen die LEDs Abweichungen von der regulaeren Grundstellung,
@@ -29,10 +34,10 @@ ueber eine ausdrueckliche Aufstellentscheidung gewaehlt.
 7. Erst nach Entfernung beider Zusatzdamen und korrekter Grundstellung werden
    normale Stellungen an den Host freigegeben.
 
-Fehlende Figuren, doppelte IDs, gemischte d/e-Paare oder zusaetzlich besetzte
-Felder geben keinen Treiber frei. Eine einzelne verrauschte Meldung kann durch
-die bestehende Sieben-Scan-Mehrheit ausgefiltert werden. Unbekannte oder doppelte
-IDs im laufenden Spiel halten die ganze Stellung zurueck, niemals als leer.
+Fehlende Figuren und doppelte IDs verhindern den Abschluss, aber nicht mehr
+unsere fruehe Aufbauhilfe. Vertauschte Figurentypen sind beim ersten Einlernen
+nicht erkennbar: Die Zuordnung entsteht aus der Aufstellposition. Unbekannte
+oder doppelte IDs im laufenden Spiel halten die ganze Stellung zurueck.
 
 ## Auswahl bleibt fuer diese Verbindung fest
 
@@ -66,10 +71,10 @@ acht Bytes. Die transportseitige Schreibreihenfolge bleibt unveraendert.
 
 ## Pruefung / Rueckweg
 
-`tools/test_spectrum_alignment.cmd` prueft sieben Gruppen, einschliesslich der
-neuen Aufstellwahl mit denselben Chips, 1/20/64/253-Byte-Fragmentierung,
+`tools/test_spectrum_alignment.cmd` prueft acht Gruppen, einschliesslich der
+fruehen Aufbauhilfe und Aufstellwahl mit denselben Chips, 1/20/64/253-Byte-Fragmentierung,
 widersprechenden L/D-Meldungen, gemischten/fehlenden/doppelten Figuren,
 Damenentfernung, Blau80-Blinken, Archiv-Isolation und Neuverbindung.
 Build: `pio run -e esp32-c3-supermini`. Physische Hardwaretests stehen aus.
-Sicherung vor der Aenderung: `backups/queen-layout-before-20261027/`.
+Sicherung vor der Aenderung: `backups/early-setup-before-20261027/`.
 Die Korrektur der Auswahl beweist keinen Fix eines Funkabbruchs vor NUS-Anmeldung.
