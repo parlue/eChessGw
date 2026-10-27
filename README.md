@@ -35,10 +35,10 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 
 ## Supported e-boards
 
-**Certabo / Spectrum beta (2026-10-26, ID-independent / MTU 256):** The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta)
-now offers a separate test build for **ESP32-C3 SuperMini**. Stable v11 remains
-available unchanged. This beta is the current development build, not a frozen
-release. A freeze will only be made after the tester confirms correct operation.
+**Certabo / Spectrum beta (2026-10-27, queen setup / MTU 256):**
+The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta) offers the
+tested build for ESP32-C3 SuperMini. Stable v11 and prior betas are retained.
+No freeze until physical tester confirmation.
 
 | Board | Status |
 |---|---|
@@ -47,46 +47,45 @@ release. A freeze will only be made after the tester confirms correct operation.
 | ManyaCynus (camera-vision chess robot) | Working -- ManyaCynus's own line-based BLE protocol translated to/from Mode B; decodes the chess computer's own LED move suggestions and commands ManyaCynus's arm to execute them, including castling, en passant and pawn promotion |
 | Certabo (Bluetooth LE / Nordic UART, mono-LED boards) | Working -- piece chips are read in at every start ([see below](#certabo-reading-in-the-pieces)), then the board's own LEDs show move suggestions from a MILLENNIUM King, Mephisto Phoenix, BearChess and Chessnut clients |
 | iChessOne | Untested on real hardware -- driver built from the vendor's own documented BLE protocol (Nordic UART Service), not yet confirmed against a real unit; LED colour and brightness can be chosen by gesture ([see below](#ichessone-led-colour-and-brightness)) |
-| Tabutronic Spectrum / Certabo RGB | Beta only -- separate 81-LED RGB encoder, red at 80% brightness; protocol/transport identification without piece IDs and colour/brightness gestures; gateway hardware validation pending |
+| Tabutronic Spectrum / Certabo RGB | Beta only -- separate 81-LED RGB encoder, blue at 80% brightness; explicit extra-queen layout selection and colour/brightness gestures; gateway hardware validation pending |
 
 Board detection is automatic: on every (re)connect attempt, the gateway scans
 for any known board's advertised BLE name and connects to whichever one it
 finds, with no build-time board selection needed.
 
-This beta retains MTU 256 and the original V11 connection call. Spectrum settings now load only after RGB detection. Connection diagnostics remain enabled. It is **not a confirmed fix** for the reported Certabo connection failure.
+### Certabo / Spectrum beta: setup
 
-### Spectrum beta: installation and testing
+Use the normal 32-piece position plus two extra queens:
 
-Open the [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta), expand
-**Beta: Certabo Spectrum**, and use the installer inside that section.
-The stable installer above it still installs v11. Both target ESP32-C3 SuperMini.
+| Board | White extra queen | Black extra queen |
+|---|---|---|
+| Certabo (normal LEDs) | d3 | d6 |
+| Spectrum (81 RGB LEDs) | e3 | e6 |
 
-The beta reuses Certabo BLE reception and calibration, with a separate RGB LED
-encoder: 81 RGB LEDs, 247-byte frames, red `(204, 0, 0)` (80%). Start with the
-normal 32-piece position plus a white queen on d3 and a black queen on d6.
-After calibration confirmation, remove the two extra queens. Piece IDs are
-learned at each startup; the beta does not reuse another user's archived IDs.
+**No LED writes occur until the 34 unique IDs have been learned over seven
+scans.** This first setup stage deliberately has no mismatch LEDs. The chosen
+driver then blinks the four centre squares three times; Spectrum uses blue 80%.
+Remove both extra queens. Normal play starts only at the correct starting setup.
 
-LED protocol selection uses passive markers and repeated original notification
-sizes, never piece IDs. Up to three complete initial positions are buffered.
-MTU stays 256. Unknown/conflicting profiles disable LED output; observed packet
-sizes are bridge firmware fingerprints, not universal model identifiers.
-See [detailed detection and filtering notes](docs/certabo_spectrum.md).
+The explicit choice replaces unreliable packet-size/marker heuristics. Figure
+IDs are interchangeable and never determine the model. Each connection learns
+anew; archived IDs are not reused. Mixed/incomplete setups do not enable LEDs.
+BLE connection code, MTU256, King/Phoenix processing and stable v11 are unchanged.
 
-After calibration, place the extra white queen on the otherwise correct starting
-position for one second: **g3 red, g4 blue, g5 green, g6 orange**;
-**h3 25%, h4 50%, h5 75%, h6 100% brightness**. Three centre flashes confirm
-the selection. Remove the queen afterwards. Settings are saved; default is red
-at 80%. Spectrum stays dark during its 4.2-second calibration confirmation.
+Spectrum uses 247-byte RGB frames, four corners per square. Startup confirmation
+is blue 80%; play defaults to blue 80%, with saved user gesture choices retained.
+Gestures: normal position plus the white spare queen held for one second on
+g3/g4/g5/g6 selects red/blue/green/orange; h3/h4/h5/h6 selects 25/50/75/100%.
+Remove the queen after confirmation. The configuration is not forwarded as a move.
 
-Please verify startup, corner mapping, all-off, gestures, reconnect and King/Phoenix
-moves on real hardware. Five automated host test groups and the SuperMini build
-passed. Mono-Certabo hardware regression testing remains part of beta testing.
+Seven host test groups and the SuperMini build passed. Physical tests on both
+boards remain pending. This corrects driver selection and a learning gate; it
+does not establish the cause of a radio failure before notification subscription.
 
-[Beta notes](docs/beta/spectrum-20261026-transport-identity/README.md) and
-[matching source archive](docs/beta/spectrum-20261026-transport-identity/source.zip) accompany the
-release. The active repository source is updated too. Stable v11 is unchanged;
-the [previous beta](docs/beta/spectrum-20261025-v11-compare256/README.md) remains archived unchanged. No new freeze until tester confirmation.
+[Beta notes](docs/beta/spectrum-20261027-queen-layout/README.md),
+[matching source](docs/beta/spectrum-20261027-queen-layout/source.zip),
+[detailed startup](docs/certabo_spectrum.md), and the
+[archived previous beta](docs/beta/spectrum-20261026-transport-identity/README.md).
 
 ### ManyaCynus special cases
 

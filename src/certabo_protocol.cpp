@@ -66,18 +66,19 @@ ParseResult Parser::feed(uint8_t byte) {
 
 void Calibration::reset() {
   count_ = 0;
+  setupType_ = LedType::Unknown;
   resetWindow();
   entries_ = {};
 }
 
-bool Calibration::observe(const RawBoard& board, bool requireExtraQueens) {
+bool Calibration::observe(const RawBoard& board, bool requireExtraQueens, bool selectByQueenLayout) {
   if (ready()) return false;
+  if (selectByQueenLayout && !requireExtraQueens) return false;
   history_[next_] = board;
   next_ = (next_ + 1) % history_.size();
   if (samples_ < history_.size()) ++samples_;
   if (samples_ < history_.size()) return false;
-  std::array<Entry, 34> candidate{};
-  size_t count = 0;
+  RawBoard consensus{};
   for (size_t square = 0; square < 64; ++square) {
     PieceId id{};
     bool majority = false;
@@ -87,10 +88,26 @@ bool Calibration::observe(const RawBoard& board, bool requireExtraQueens) {
       if (votes > history_.size() / 2) { id = sample[square]; majority = true; break; }
     }
     if (!majority) return false;
-    const char piece = square == 19 ? 'q' : square == 43 ? 'Q' : kStart[square];
+    consensus[square] = id;
+  }
+  size_t blackQueen = 19, whiteQueen = 43;
+  LedType selected = LedType::Mono;
+  if (selectByQueenLayout) {
+    const bool d = !empty(consensus[19]) && !empty(consensus[43]) &&
+                   empty(consensus[20]) && empty(consensus[44]);
+    const bool e = !empty(consensus[20]) && !empty(consensus[44]) &&
+                   empty(consensus[19]) && empty(consensus[43]);
+    if (!d && !e) return false;
+    if (e) { blackQueen=20; whiteQueen=44; selected=LedType::Rgb; }
+  }
+  std::array<Entry, 34> candidate{};
+  size_t count = 0;
+  for (size_t square=0;square<64;++square) {
+    const PieceId& id = consensus[square];
+    const char piece = square == blackQueen ? 'q' : square == whiteQueen ? 'Q' : kStart[square];
     if (piece == '.') { if (!empty(id)) return false; continue; }
     if (empty(id)) {
-      if (!requireExtraQueens && (square == 19 || square == 43)) continue;
+      if (!requireExtraQueens && (square == blackQueen || square == whiteQueen)) continue;
       return false;
     }
     for (size_t i = 0; i < count; ++i) if (candidate[i].id == id) return false;
@@ -99,6 +116,7 @@ bool Calibration::observe(const RawBoard& board, bool requireExtraQueens) {
   }
   entries_ = candidate;
   count_ = count;
+  setupType_ = selected;
   return true;
 }
 
@@ -163,6 +181,7 @@ bool Calibration::load(const uint8_t* blob, size_t length) {
   }
   entries_ = candidate;
   count_ = blob[1];
+  setupType_ = LedType::Unknown;
   resetWindow();
   return true;
 }

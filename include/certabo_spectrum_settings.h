@@ -6,7 +6,7 @@ namespace certabo { namespace spectrum {
 // Same gesture positions as iChessOne, with Spectrum's 80% default retained.
 class Settings {
  public:
-  uint8_t color=0, brightness=204;
+  uint8_t color=1, brightness=204; // blue, 80%, unless a saved user setting overrides it
   void resetGesture() { candidate_=-1; applied_=false; }
   // a1..h8 piece array: only a full starting position + one extra white queen.
   bool observe(const char board[64], uint32_t now) {

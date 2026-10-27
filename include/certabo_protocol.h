@@ -38,9 +38,12 @@ class Calibration {
   static constexpr size_t kBlobSize = 210;
   void reset();
   void resetWindow() { samples_ = next_ = 0; }
-  bool observe(const RawBoard& board, bool requireExtraQueens = false);
+  bool observe(const RawBoard& board, bool requireExtraQueens = false,
+               bool selectByQueenLayout = false);
   bool ready() const { return count_ >= 32; }
   size_t count() const { return count_; }
+  // Set only by live calibration, never restored from a figure archive.
+  LedType setupType() const { return setupType_; }
   bool decode(const RawBoard& board, uint8_t frame[67]) const;
   bool save(uint8_t blob[kBlobSize]) const;
   bool load(const uint8_t* blob, size_t length);
@@ -52,6 +55,7 @@ class Calibration {
   size_t count_ = 0;
   size_t samples_ = 0;
   size_t next_ = 0;
+  LedType setupType_ = LedType::Unknown;
 };
 
 // Square indices are a1=0 through h8=63, matching boardSquareIndex().
