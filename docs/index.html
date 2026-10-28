@@ -65,7 +65,7 @@
   </p>
 
   <ul class="features">
-    <li>Supported e-boards: MILLENNIUM Supreme T2 BT, Chessnut Air/GO/Pro, <strong>Certabo</strong> (pieces are read in at every start: 32 pieces in the starting position plus a spare white queen on d3 and a spare black queen on d6; the four centre squares blink three times when done, then remove the two queens), ManyaCynus camera-vision robot (including castling, en passant, promotion)</li>
+    <li>Supported e-boards: MILLENNIUM Supreme T2 BT, Chessnut Air/GO/Pro, <strong>Certabo and Tabutronic Spectrum</strong> (setup below), ManyaCynus camera-vision robot (including castling, en passant, promotion)</li>
     <li><strong>Standalone mode</strong>: no cable computer needed -- the gateway advertises itself as a ChessLink or Chessnut board over BLE for wireless chess software (PicoChess, BearChess, Chess PGN Master)</li>
     <li><strong>Automatic PGN game recording</strong>, including checkmate detection and a manual result-signal gesture</li>
     <li><strong>USB game retrieval</strong> via a simple physical gesture and a standalone Windows tool</li>
@@ -73,36 +73,26 @@
   </ul>
 
   <div class="installer">
-    <h2>Stable release — v11</h2>
-    <p>Recommended for normal use. ESP32-C3 SuperMini.</p>
+    <h2>Stable release — V12</h2>
+    <p>Tester-confirmed Certabo / Spectrum release. ESP32-C3 SuperMini.</p>
     <esp-web-install-button manifest="manifest.json">
     </esp-web-install-button>
   </div>
 
-  <details class="installer" id="spectrum-beta">
-    <summary><strong>Beta: Certabo / Spectrum - 2026-10-27 / Early setup help</strong></summary>
-    <p>Test firmware for <strong>ESP32-C3 SuperMini</strong>. Select the correct
-      LED driver through the extra queens, not through chip IDs or BLE packet sizes.</p>
-    <ul>
-      <li><strong>Certabo:</strong> normal starting position + white extra queen <strong>d3</strong>, black <strong>d6</strong>.</li>
-      <li><strong>Spectrum:</strong> normal starting position + white extra queen <strong>e3</strong>, black <strong>e6</strong>.</li>
-    </ul>
-    <p><strong>Early setup LEDs after one stable extra queen.</strong> Keep one extra queen still for three full scans. Missing, extra or duplicate
-      chips then light after two scans. All 34 unique chips are still required to finish learning. The four centre squares then blink three
-      times (Spectrum: blue 80%). Remove both extra queens when prompted.</p>
-    <esp-web-install-button manifest="beta/spectrum-20261027-early-setup/manifest.json">
-    </esp-web-install-button>
-    <p>Spectrum play defaults to blue 80%; saved gesture settings remain available.
-      MTU stays 256. Physical testing remains required; no freeze yet.</p>
-    <p><strong>Scope:</strong> corrects LED-driver selection and the learning gate;
-      it is not a confirmed fix for radio-level failures before connection.</p>
-    <p><a href="anleitungen/eChessGateway_Certabo_Spectrum_Log.pdf">Log-Aufzeichnung (PDF, Deutsch)</a></p>
-    <p><a href="beta/spectrum-20261027-queen-layout/README.md">Previous beta (retained)</a> |
-      <a href="beta/spectrum-20261027-early-setup/README.md">Beta notes</a> |
-      <a href="beta/spectrum-20261027-early-setup/source.zip">Corresponding source</a></p>
-  </details>
+  <h2>Certabo / Spectrum setup</h2>
+  <p>Use the normal 32-piece starting position plus two extra queens:</p>
+  <ul>
+    <li><strong>Certabo:</strong> white extra queen on <strong>d3</strong>, black extra queen on <strong>d6</strong>.</li>
+    <li><strong>Spectrum:</strong> white extra queen on <strong>e3</strong>, black extra queen on <strong>e6</strong>.</li>
+  </ul>
+  <p>Keep the pieces still. One stable extra queen enables setup assistance; all 34 unique chips must be learned before completion.
+    The four centre squares blink three times. Then remove both extra queens when their squares light up.
+    Normal play starts only with the correct 32-piece starting position. IDs are learned anew on every connection.</p>
+  <p>Spectrum uses blue at 80% brightness by default. Colour and brightness gestures remain available.</p>
+  <p><a href="releases/v12/source.zip">V12 source</a> · <a href="releases/v12/SHA256.json">V12 checksums</a> ·
+    <a href="releases/v11/manifest.json">Archived V11 manifest</a></p>
 
-  <h2>Installation</h2>
+<h2>Installation</h2>
   <ol>
     <li>Connect the ESP32-C3 SuperMini to your computer via USB.</li>
     <li>Use Google Chrome or Microsoft Edge.</li>

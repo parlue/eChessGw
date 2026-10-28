@@ -1,23 +1,14 @@
 # eChessGw Web Flasher
 
-The normal installer continues to use `manifest.json` (stable v11).
-The separate expandable Spectrum beta installer uses
-`beta/spectrum-20261015/manifest.json`, with its own binaries and corresponding
-source archive. Target: ESP32-C3 SuperMini. Hardware confirmation is pending;
-freeze the development version only after the tester confirms operation.
+The normal installer uses `manifest.json`, stable release **V12** for ESP32-C3 SuperMini.
+The tester-confirmed Certabo/Spectrum firmware is promoted byte-for-byte; there is no beta installer.
 
-The manifest selects the complete ESP32-C3 image set: bootloader, partition
-table, boot application selector and the eChessGw gateway firmware.
+- Certabo: normal starting position plus white extra queen d3 and black extra queen d6.
+- Spectrum: normal starting position plus white extra queen e3 and black extra queen e6.
+- Wait for all 34 chips to be learned and three centre flashes, then remove the extra queens when indicated.
+- Start play only after the correct normal starting position is recognized.
 
-This `docs` directory is served from the root of the eChessGw GitHub
-repository via GitHub Pages.
+V12 files, matching source and hashes are in `releases/v12/`. V11 is retained in `releases/v11/`;
+old beta folders are historical archives and are no longer offered by the installer.
 
-To (re-)enable it: Settings -> Pages, then select:
-
-- Source: Deploy from a branch
-- Branch: main
-- Folder: /docs
-
-Once GitHub Pages has deployed, the installer is available at:
-
-https://parlue.github.io/eChessGw/
+GitHub Pages: main branch, /docs. Installer: https://parlue.github.io/eChessGw/

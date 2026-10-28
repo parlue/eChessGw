@@ -75,6 +75,6 @@ acht Bytes. Die transportseitige Schreibreihenfolge bleibt unveraendert.
 fruehen Aufbauhilfe und Aufstellwahl mit denselben Chips, 1/20/64/253-Byte-Fragmentierung,
 widersprechenden L/D-Meldungen, gemischten/fehlenden/doppelten Figuren,
 Damenentfernung, Blau80-Blinken, Archiv-Isolation und Neuverbindung.
-Build: `pio run -e esp32-c3-supermini`. Physische Hardwaretests stehen aus.
+V12 am 28.10.2026 nach Testerbestaetigung eingefroren. Build des Freeze: `pio run -e esp32-c3-superminiV12_Spectrum`. Weiterentwicklung: `esp32-c3-supermini`.
 Sicherung vor der Aenderung: `backups/early-setup-before-20261027/`.
 Die Korrektur der Auswahl beweist keinen Fix eines Funkabbruchs vor NUS-Anmeldung.

@@ -1,5 +1,7 @@
 # eChessGw
 
+**Current stable release: V12 — 28 October 2026.** Certabo and Tabutronic Spectrum integration confirmed by the tester. [Install V12](https://parlue.github.io/eChessGw/) · [Release](https://github.com/parlue/eChessGw/releases/tag/v12).
+
 eChessGw is an independent source-available BLE gateway for chess
 computer modules that speak the ChessLink (Mode B) protocol over a cable. It
 replaces the cable between the chess computer module and a BLE-enabled
@@ -22,7 +24,7 @@ Generic chess computer module with DIN connector
               ⇅ UART / 3.3 V
         ESP32-C3 SuperMini
               ⇅ BLE
-MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot -- or -- Certabo -- or -- iChessOne
+MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot -- or -- Certabo / Spectrum -- or -- iChessOne
 ```
 
 <p>
@@ -35,25 +37,23 @@ MILLENNIUM Supreme T2 BT -- or -- Chessnut Air/GO/Pro -- or -- ManyaCynus robot 
 
 ## Supported e-boards
 
-**Certabo / Spectrum beta (2026-10-27, early setup help / MTU 256):**
-The [web flasher](https://parlue.github.io/eChessGw/#spectrum-beta) offers the
-tested build for ESP32-C3 SuperMini. Stable v11 and prior betas are retained.
-No freeze until physical tester confirmation.
+**V12 includes both Certabo and Spectrum in the normal release installer.**
+The extra-queen layout chooses the LED driver; figures are learned again on every connection.
 
 | Board | Status |
 |---|---|
 | MILLENNIUM Supreme T2 BT (and other genuine ChessLink boards) | Working -- native Mode B relayed as-is |
 | Chessnut Air / GO / Pro | Working -- Chessnut's own BLE protocol translated to/from Mode B, including LED move suggestions and New Game/reset highlighting |
 | ManyaCynus (camera-vision chess robot) | Working -- ManyaCynus's own line-based BLE protocol translated to/from Mode B; decodes the chess computer's own LED move suggestions and commands ManyaCynus's arm to execute them, including castling, en passant and pawn promotion |
-| Certabo (Bluetooth LE / Nordic UART, mono-LED boards) | Working -- piece chips are read in at every start ([see below](#certabo-reading-in-the-pieces)), then the board's own LEDs show move suggestions from a MILLENNIUM King, Mephisto Phoenix, BearChess and Chessnut clients |
+| Certabo (Bluetooth LE / Nordic UART, mono-LED boards) | Working -- piece chips are read in at every start ([see below](#certabo--spectrum-selecting-the-board-and-learning-pieces)), then the board's own LEDs show move suggestions from a MILLENNIUM King, Mephisto Phoenix, BearChess and Chessnut clients |
 | iChessOne | Untested on real hardware -- driver built from the vendor's own documented BLE protocol (Nordic UART Service), not yet confirmed against a real unit; LED colour and brightness can be chosen by gesture ([see below](#ichessone-led-colour-and-brightness)) |
-| Tabutronic Spectrum / Certabo RGB | Beta only -- separate 81-LED RGB encoder, blue at 80% brightness; explicit extra-queen layout selection and colour/brightness gestures; gateway hardware validation pending |
+| Tabutronic Spectrum / Certabo RGB | Working in V12 -- 81 RGB LEDs, blue at 80% by default; extra queens on e3/e6 select Spectrum; colour/brightness gestures available |
 
 Board detection is automatic: on every (re)connect attempt, the gateway scans
 for any known board's advertised BLE name and connects to whichever one it
 finds, with no build-time board selection needed.
 
-### Certabo / Spectrum beta: setup
+### Certabo / Spectrum: selecting the board and learning pieces
 
 Use the normal 32-piece position plus two extra queens:
 
@@ -74,7 +74,7 @@ The explicit choice replaces unreliable packet-size/marker heuristics. Figure
 IDs are interchangeable and never determine the model. Each connection learns
 anew; archived IDs are not reused. Mixed choices stay dark before selection. Once selected, the driver stays fixed
 until reconnect, and opposite choice squares are reported as setup errors.
-BLE connection code, MTU256, King/Phoenix processing and stable v11 are unchanged.
+MTU stays at 256. King/Phoenix cable processing is unchanged. V11 remains archived as a fallback.
 
 Spectrum uses 247-byte RGB frames, four corners per square. Startup confirmation
 is blue 80%; play defaults to blue 80%, with saved user gesture choices retained.
@@ -82,14 +82,18 @@ Gestures: normal position plus the white spare queen held for one second on
 g3/g4/g5/g6 selects red/blue/green/orange; h3/h4/h5/h6 selects 25/50/75/100%.
 Remove the queen after confirmation. The configuration is not forwarded as a move.
 
-Eight host test groups and the SuperMini build passed. Physical tests on both
-boards remain pending. This corrects driver selection and a learning gate; it
-does not establish the cause of a radio failure before notification subscription.
+The tester confirmed the current Certabo/Spectrum firmware on 28 October 2026.
+V12 promotes that exact tested firmware without changing its program bytes.
+Its internal build timestamp therefore remains the original tested build timestamp.
 
-[Beta notes](docs/beta/spectrum-20261027-early-setup/README.md),
-[matching source](docs/beta/spectrum-20261027-early-setup/source.zip),
-[detailed startup](docs/certabo_spectrum.md), and the
-[archived previous beta](docs/beta/spectrum-20261027-queen-layout/README.md).
+**Frozen build:** `pio run -e esp32-c3-superminiV12_Spectrum`.
+All project sources and headers for V12 are isolated in `src/frozen_v12/`, with
+Espressif32 7.0.1 and NimBLE-Arduino 2.5.1 pinned. The ordinary
+`esp32-c3-supermini` environment excludes that directory and remains the development target.
+Do not edit the frozen directory for future features.
+
+[V12 source and checksums](docs/releases/v12/), [detailed setup](docs/certabo_spectrum.md),
+and [archived V11](docs/releases/v11/manifest.json).
 
 ### ManyaCynus special cases
 
@@ -238,9 +242,7 @@ afterwards. The gesture does not interfere with the standalone-mode queen
 gesture on a4/b4. Colour and brightness are independent: set one, then the
 other. (g7 is not used -- it is occupied on the starting position.)
 
-**Status:** this gesture is implemented in the development source (October 2026)
-and is **not yet part of the published v11 firmware / web installer image**; it
-will be included in the next release. Like the whole iChessOne driver it has not
+**Status:** included in V12. Like the whole iChessOne driver it has not
 been tested on a real board yet, and the exact look of the orange and of the
 brightness steps depends on the board's LEDs.
 
@@ -291,7 +293,7 @@ the connected board has supplied its first valid position:
 | MILLENNIUM / Supreme T2 | **Chessnut Air** — Chessnut BLE | None |
 | Other supported board types | ChessLink or Chessnut BLE | Second white queen on a4 or b4, as below |
 
-This selection is part of the v11 firmware published in the web installer.
+This selection remains available in the V12 firmware published in the web installer.
 The Certabo gesture path has been confirmed on real hardware; the automatic
 selection for Chessnut and MILLENNIUM boards has not been separately
 confirmed since this change.
@@ -603,7 +605,8 @@ client compatibility list.
 | v6.9 | Renamed the project to eChessGw (was BluetoothMax) and switched all documentation/UI text from "Bluetooth" to "BLE" to avoid any Bluetooth SIG trademark conflict -- no functional change to the protocol or hardware support. Also removed an unjustified BLE MTU request (128, never actually required by any supported client) |
 | v9.3 | ManyaCynus: pure software-driven game replay over the ChessLink BLE masquerade (e.g. Chess PGN Master stepping through a loaded game, with no human ever scanning a move) now works end-to-end. Fixed 3 related issues, each scoped so the King/Phoenix cable path and BearChess are provably unaffected: (1) BLE app clients (Chess Dojo, Chess PGN Master) encode the LED move-highlight grid 180 degrees rotated relative to real King/Phoenix cable hardware, despite the identical wire format -- confirmed via a real Chess Dojo game (outgoing status reached it correctly oriented, but its own move highlights decoded mirrored, e.g. e2-e4 arriving as d7-d5); corrected only at the BLE entry point, never inside the shared decoder; (2) the LED-channel move decoder now tracks the actually-alternating side to move instead of a single game-long fixed color whenever no human has scanned a move yet this game, matching the fix already used for Chessnut replay -- both colors arriving over the same channel used to get silently dropped or rejected every other move; (3) removed the automatic "the scan looks flipped, so flip must be on" heuristic entirely (it assumed a move arriving over the LED channel before any scan always meant the software plays White, which stopped holding once software could drive both colors) -- board orientation now comes only from the manual black-King gesture, moved to b5/b6 (see the option table above) |
 | v10 | + Engine-vs-engine `machine_gateway` subsystem: two chess computers/apps can play each other through the gateway, with or without a physical board (see [Engine vs. engine](#engine-vs-engine-with-or-without-an-e-board)) |
-| v11 (current) | + **Certabo** board support (Bluetooth LE / Nordic UART): the board's 34 piece chips are read in at every start ([see above](#certabo-reading-in-the-pieces)), mono LEDs show suggestions from a MILLENNIUM King, Mephisto Phoenix and wireless clients; the human's own move is shown on the Certabo with a King. Also: LED highlights sent by BLE clients (BearChess, Chess Dojo) are now used exactly as received -- the 180 degree rotation added in v9.3 mirrored them on Certabo and Chessnut boards, and client frames are handled like a King's single-shot suggestions (double pawn pushes and castling highlight the right squares); `ChessnutMove` robotic board support is included |
+| v11 | + **Certabo** board support (Bluetooth LE / Nordic UART): the board's 34 piece chips are read in at every start ([see above](#certabo--spectrum-selecting-the-board-and-learning-pieces)), mono LEDs show suggestions from a MILLENNIUM King, Mephisto Phoenix and wireless clients; the human's own move is shown on the Certabo with a King. Also: LED highlights sent by BLE clients (BearChess, Chess Dojo) are now used exactly as received -- the 180 degree rotation added in v9.3 mirrored them on Certabo and Chessnut boards, and client frames are handled like a King's single-shot suggestions (double pawn pushes and castling highlight the right squares); `ChessnutMove` robotic board support is included |
+| v12 (current) | **Tabutronic Spectrum integrated and tester-confirmed.** Certabo uses extra queens on d3/d6; Spectrum uses e3/e6. Early setup assistance, 34-piece learning, centre confirmation flashes and removal of extra queens. Spectrum defaults to blue 80%, with colour/brightness gestures. Independent frozen V12 build; normal SuperMini development remains separate. |
 
 ## Components
 

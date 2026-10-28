@@ -1,0 +1,7 @@
+{
+  "manifest.json": "98b432bbffbe9b7ed73eb3939b8880e8b45aaceb857fa622dfbb106eedbcba14",
+  "eChessGw-firmware.bin": "6668e187028e1b263b5c6e8fe6995389cb9abd61f48dd9d6f5a3700b782c0e77",
+  "bootloader.bin": "30d47ab1f344cfa69f6b2f718ffa72fc7baea6db047eaabefea162db29e6821c",
+  "partitions.bin": "148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1",
+  "boot_app0.bin": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+}

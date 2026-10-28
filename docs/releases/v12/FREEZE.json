@@ -1,0 +1,335 @@
+{
+  "release": "v12",
+  "confirmed_by_user": "2026-10-28",
+  "tested_beta": "spectrum-20261027-early-setup",
+  "released_firmware_sha256": "06b4613cf916648d576fb6ab90837b2532dbfabbd5298cb2bfe82d2962f9de22",
+  "environment": "esp32-c3-superminiV12_Spectrum",
+  "platform": "espressif32 7.0.1",
+  "NimBLE-Arduino": "2.5.1",
+  "files": [
+    {
+      "active": "src/board_driver.cpp",
+      "active_sha256": "2a4ff19110769688fe59e669d86230e83d875560967d77e95d52e18df53ab1f6",
+      "frozen": "src/frozen_v12/board_driver.cpp",
+      "frozen_sha256": "2a4ff19110769688fe59e669d86230e83d875560967d77e95d52e18df53ab1f6"
+    },
+    {
+      "active": "src/certabo_board.cpp",
+      "active_sha256": "2f6d515b648c2ce5d0c20ad543c31f5ba8b08b551d014830ed9f5c7fdf9c3e7d",
+      "frozen": "src/frozen_v12/certabo_board.cpp",
+      "frozen_sha256": "2f6d515b648c2ce5d0c20ad543c31f5ba8b08b551d014830ed9f5c7fdf9c3e7d"
+    },
+    {
+      "active": "src/certabo_protocol.cpp",
+      "active_sha256": "e8623111187a8ddb66e9ef4026afa696dd2718cd5952f6f656b4139b6f03a0c0",
+      "frozen": "src/frozen_v12/certabo_protocol.cpp",
+      "frozen_sha256": "f3aa42c82d23f21c78f4f74db7c039a6121b09eaef6cf919dceee69dcf083d65"
+    },
+    {
+      "active": "src/chesslink_server.cpp",
+      "active_sha256": "470a96441e9b1ad89dff4e0c5df68f15eade8cb43e04c6ef3b05c702dbb865dc",
+      "frozen": "src/frozen_v12/chesslink_server.cpp",
+      "frozen_sha256": "0fa9380d05dd48c86d218abe7d37fe37f14f4ecf3e3b1ed4f31833eb7964d1ac"
+    },
+    {
+      "active": "src/chessnutmove_board.cpp",
+      "active_sha256": "881f23babaa9a870d3064c57e891d035436cd92ae9eb00900f9f0e8556233d42",
+      "frozen": "src/frozen_v12/chessnutmove_board.cpp",
+      "frozen_sha256": "881f23babaa9a870d3064c57e891d035436cd92ae9eb00900f9f0e8556233d42"
+    },
+    {
+      "active": "src/chessnut_board.cpp",
+      "active_sha256": "8e766f8907165456d66b9b4de696eec0c214b4188068d1f7a5848136d2ca1b64",
+      "frozen": "src/frozen_v12/chessnut_board.cpp",
+      "frozen_sha256": "8e766f8907165456d66b9b4de696eec0c214b4188068d1f7a5848136d2ca1b64"
+    },
+    {
+      "active": "src/chessnut_server.cpp",
+      "active_sha256": "a0d1fc8b2a664027ad028312ca39f14c55c2b35928e06ec58b4c8a77c5cdad32",
+      "frozen": "src/frozen_v12/chessnut_server.cpp",
+      "frozen_sha256": "a0d1fc8b2a664027ad028312ca39f14c55c2b35928e06ec58b4c8a77c5cdad32"
+    },
+    {
+      "active": "src/cynus_board.cpp",
+      "active_sha256": "98ac6f85fa40c2c7ff6d338f843216e03606b59ba9dac625f34bb970d764864c",
+      "frozen": "src/frozen_v12/cynus_board.cpp",
+      "frozen_sha256": "f3b02eb35e1975360601e8fd70653f9e3d5ed6d6525a435e3207dad556c1acd9"
+    },
+    {
+      "active": "src/gw_log.cpp",
+      "active_sha256": "c2ea4c37c9f1569962d9a4876e44b3f45e8e9b19fc7b9c1e606749eab6ef633e",
+      "frozen": "src/frozen_v12/gw_log.cpp",
+      "frozen_sha256": "d009a8d06077737eebb7f4ebdcdb00bde529c822996322c9c7104d42dc9b76da"
+    },
+    {
+      "active": "src/gw_log_upload.cpp",
+      "active_sha256": "fb415e2b7c5257cb390f77c733ec2290163c1a97e139d89b2e890c1445c3f5f4",
+      "frozen": "src/frozen_v12/gw_log_upload.cpp",
+      "frozen_sha256": "fb415e2b7c5257cb390f77c733ec2290163c1a97e139d89b2e890c1445c3f5f4"
+    },
+    {
+      "active": "src/ichessone_board.cpp",
+      "active_sha256": "2ff24802ca21a7bbf9405305450edbde65d9f49b0557aff9b844a4ff28a2086f",
+      "frozen": "src/frozen_v12/ichessone_board.cpp",
+      "frozen_sha256": "2ff24802ca21a7bbf9405305450edbde65d9f49b0557aff9b844a4ff28a2086f"
+    },
+    {
+      "active": "src/machine_gateway.cpp",
+      "active_sha256": "60b9aecb9357ec1e03bec58e7c2b2324cf97fb569f4dad2686de70c8b8e25971",
+      "frozen": "src/frozen_v12/machine_gateway.cpp",
+      "frozen_sha256": "efa0b1d6a62f65b8fc3c0470a7b92598a9a8c91305c912aa673632de434f5c0f"
+    },
+    {
+      "active": "src/main.cpp",
+      "active_sha256": "10e926d978db07223754955c5536941c9ed9ec7e658fce2d1c3c2e22f0f2881b",
+      "frozen": "src/frozen_v12/main.cpp",
+      "frozen_sha256": "10e926d978db07223754955c5536941c9ed9ec7e658fce2d1c3c2e22f0f2881b"
+    },
+    {
+      "active": "src/millennium_board.cpp",
+      "active_sha256": "6eb71ef9204bb9103fc525ba45bb6a11439018e64b92e9da20c347690f9c46e9",
+      "frozen": "src/frozen_v12/millennium_board.cpp",
+      "frozen_sha256": "6eb71ef9204bb9103fc525ba45bb6a11439018e64b92e9da20c347690f9c46e9"
+    },
+    {
+      "active": "src/newgame_button.cpp",
+      "active_sha256": "c0aad0da12df1afc61599b99bcd157a9697bc5197b40b0c4ba32ee1bdb685cdb",
+      "frozen": "src/frozen_v12/newgame_button.cpp",
+      "frozen_sha256": "c0aad0da12df1afc61599b99bcd157a9697bc5197b40b0c4ba32ee1bdb685cdb"
+    },
+    {
+      "active": "src/pgn_recorder.cpp",
+      "active_sha256": "91eb94080bbe38695de857012a9e8f221086fbcd2d1c2fe2f1ac84b9c8dcf8e3",
+      "frozen": "src/frozen_v12/pgn_recorder.cpp",
+      "frozen_sha256": "f4e778993093b089add3e0053d46f33fe820a59870eea663beb81403bbc2e452"
+    },
+    {
+      "active": "src/usb_pgn_dump.cpp",
+      "active_sha256": "32e47793712b13bd23786de903a3c8c4951faccad827a1fbd444fc8ab014f3fa",
+      "frozen": "src/frozen_v12/usb_pgn_dump.cpp",
+      "frozen_sha256": "32e47793712b13bd23786de903a3c8c4951faccad827a1fbd444fc8ab014f3fa"
+    },
+    {
+      "active": "include/board_driver.h",
+      "active_sha256": "390e7fb98bd4545ba809fd3b5cbd9145c0d84801e8b6df4a5ec505a9c1967138",
+      "frozen": "src/frozen_v12/board_driver.h",
+      "frozen_sha256": "390e7fb98bd4545ba809fd3b5cbd9145c0d84801e8b6df4a5ec505a9c1967138"
+    },
+    {
+      "active": "include/cable_status_policy.h",
+      "active_sha256": "ed3948ece682b9e5416fbd8b84d1c0c8ff2d322256bf6ed7b6775284f6fcc8a7",
+      "frozen": "src/frozen_v12/cable_status_policy.h",
+      "frozen_sha256": "ed3948ece682b9e5416fbd8b84d1c0c8ff2d322256bf6ed7b6775284f6fcc8a7"
+    },
+    {
+      "active": "include/certabo_board.h",
+      "active_sha256": "e8b132ff70d36713f1aababc1cef64e4b3a6025cd685aeab21852ab10a74418b",
+      "frozen": "src/frozen_v12/certabo_board.h",
+      "frozen_sha256": "e8b132ff70d36713f1aababc1cef64e4b3a6025cd685aeab21852ab10a74418b"
+    },
+    {
+      "active": "include/certabo_castling.h",
+      "active_sha256": "5d5b5d9239bd9fcc57362888a9518f4d1c902550711f023821d968ce54a6dd14",
+      "frozen": "src/frozen_v12/certabo_castling.h",
+      "frozen_sha256": "5d5b5d9239bd9fcc57362888a9518f4d1c902550711f023821d968ce54a6dd14"
+    },
+    {
+      "active": "include/certabo_king_echo.h",
+      "active_sha256": "35b302668efc572e1dc5235a1fe16d678a929c92e5b6d1a0ec5fd2fd10c12f88",
+      "frozen": "src/frozen_v12/certabo_king_echo.h",
+      "frozen_sha256": "35b302668efc572e1dc5235a1fe16d678a929c92e5b6d1a0ec5fd2fd10c12f88"
+    },
+    {
+      "active": "include/certabo_king_filter.h",
+      "active_sha256": "9ac713bc4417f321acfe2a34ad500350bb1d9912632e158e822204b0f42636f7",
+      "frozen": "src/frozen_v12/certabo_king_filter.h",
+      "frozen_sha256": "9ac713bc4417f321acfe2a34ad500350bb1d9912632e158e822204b0f42636f7"
+    },
+    {
+      "active": "include/certabo_led_identity.h",
+      "active_sha256": "cdf0f0bfda23de36577a50d280f545f0f1a59da3bb2118a4817da8a61f544da9",
+      "frozen": "src/frozen_v12/certabo_led_identity.h",
+      "frozen_sha256": "cdf0f0bfda23de36577a50d280f545f0f1a59da3bb2118a4817da8a61f544da9"
+    },
+    {
+      "active": "include/certabo_led_window.h",
+      "active_sha256": "455e723e2e9fb67f061f7b5090b1e5f5fb4e89d5d1bbfc11a82c0147e03a6066",
+      "frozen": "src/frozen_v12/certabo_led_window.h",
+      "frozen_sha256": "455e723e2e9fb67f061f7b5090b1e5f5fb4e89d5d1bbfc11a82c0147e03a6066"
+    },
+    {
+      "active": "include/certabo_move_lights.h",
+      "active_sha256": "a9b769e5fa07f2b98ae4e6c0ded8678740681b5d179384b46d84cec1c618daf3",
+      "frozen": "src/frozen_v12/certabo_move_lights.h",
+      "frozen_sha256": "a9b769e5fa07f2b98ae4e6c0ded8678740681b5d179384b46d84cec1c618daf3"
+    },
+    {
+      "active": "include/certabo_protocol.h",
+      "active_sha256": "d33f97c1e1058bc241ac5f723b233d86f55b8d8fe3277cddf22e25a6bee6c210",
+      "frozen": "src/frozen_v12/certabo_protocol.h",
+      "frozen_sha256": "43475e1d6790bd4b5a472d7c5458651742df1873045fa486694add9123dfd439"
+    },
+    {
+      "active": "include/certabo_spectrum_leds.h",
+      "active_sha256": "2a9b0de732a02150825baffb2c69edbab3bdfcc979a2a3fcd9c190a0c244c46b",
+      "frozen": "src/frozen_v12/certabo_spectrum_leds.h",
+      "frozen_sha256": "2a9b0de732a02150825baffb2c69edbab3bdfcc979a2a3fcd9c190a0c244c46b"
+    },
+    {
+      "active": "include/certabo_spectrum_settings.h",
+      "active_sha256": "6bf960268cff6d30652791973d0cb22ffd7b3f1c05d1afb37e33cde6cc969681",
+      "frozen": "src/frozen_v12/certabo_spectrum_settings.h",
+      "frozen_sha256": "6bf960268cff6d30652791973d0cb22ffd7b3f1c05d1afb37e33cde6cc969681"
+    },
+    {
+      "active": "include/certabo_startup.h",
+      "active_sha256": "2b043df4b3b9614ea5a9584243bc9dec86c16928f13562179e95798dc3ec9238",
+      "frozen": "src/frozen_v12/certabo_startup.h",
+      "frozen_sha256": "2b043df4b3b9614ea5a9584243bc9dec86c16928f13562179e95798dc3ec9238"
+    },
+    {
+      "active": "include/chesslink_server.h",
+      "active_sha256": "ad6da1c66b5fd21b29e83d6fdd96e5efce6787fdd951849a06d83e3cb692bfef",
+      "frozen": "src/frozen_v12/chesslink_server.h",
+      "frozen_sha256": "ad6da1c66b5fd21b29e83d6fdd96e5efce6787fdd951849a06d83e3cb692bfef"
+    },
+    {
+      "active": "include/chesslink_status_refresh.h",
+      "active_sha256": "779f51f603a1801ed80672fdcf5afd62f76246b04ab2b481b342f7d6be57ee5a",
+      "frozen": "src/frozen_v12/chesslink_status_refresh.h",
+      "frozen_sha256": "779f51f603a1801ed80672fdcf5afd62f76246b04ab2b481b342f7d6be57ee5a"
+    },
+    {
+      "active": "include/chessnutmove_board.h",
+      "active_sha256": "74e926f7c921e12817bf4c4fb18f038a52238a1cb3c4464b0435f3f741b4a4ed",
+      "frozen": "src/frozen_v12/chessnutmove_board.h",
+      "frozen_sha256": "74e926f7c921e12817bf4c4fb18f038a52238a1cb3c4464b0435f3f741b4a4ed"
+    },
+    {
+      "active": "include/chessnut_board.h",
+      "active_sha256": "df5d0cde96aa1f6cba1591d0eea15f518cf129d41d50883b72e3b30908dd56ed",
+      "frozen": "src/frozen_v12/chessnut_board.h",
+      "frozen_sha256": "df5d0cde96aa1f6cba1591d0eea15f518cf129d41d50883b72e3b30908dd56ed"
+    },
+    {
+      "active": "include/chessnut_server.h",
+      "active_sha256": "78e30dea00f355e4d642ed4c5ebdd1c510380548e6c26f6a81b7d6ab764986b2",
+      "frozen": "src/frozen_v12/chessnut_server.h",
+      "frozen_sha256": "78e30dea00f355e4d642ed4c5ebdd1c510380548e6c26f6a81b7d6ab764986b2"
+    },
+    {
+      "active": "include/cynus_board.h",
+      "active_sha256": "ccdb18db10cb805e549e51d54e025fb2276422bcc6787e0e656d37fb41dfe8bf",
+      "frozen": "src/frozen_v12/cynus_board.h",
+      "frozen_sha256": "28f33c1c72a0fe468e9864f5cb7ef7cd1e37114d006619597a706cb7b9b0274d"
+    },
+    {
+      "active": "include/gw_log.h",
+      "active_sha256": "4b1b03d83f181b185fa28ac5c60c6bbbd43c722d9ef2629c4f21d6ba4f108157",
+      "frozen": "src/frozen_v12/gw_log.h",
+      "frozen_sha256": "4b1b03d83f181b185fa28ac5c60c6bbbd43c722d9ef2629c4f21d6ba4f108157"
+    },
+    {
+      "active": "include/gw_log_upload.h",
+      "active_sha256": "c7d5676160aa4d116ed258d9d666398bd3116bccf622ce9dd50453fc70b737af",
+      "frozen": "src/frozen_v12/gw_log_upload.h",
+      "frozen_sha256": "c7d5676160aa4d116ed258d9d666398bd3116bccf622ce9dd50453fc70b737af"
+    },
+    {
+      "active": "include/gw_serial.h",
+      "active_sha256": "0623bf6e43e9160524467a3e1f3c455e5b7440e8d89089bc1247ead2d812bb09",
+      "frozen": "src/frozen_v12/gw_serial.h",
+      "frozen_sha256": "0623bf6e43e9160524467a3e1f3c455e5b7440e8d89089bc1247ead2d812bb09"
+    },
+    {
+      "active": "include/ichessone_board.h",
+      "active_sha256": "9eaf24a2d87ee54671e56cc6a66f7b16c4711048f2d5ef59f187cb74f9b7105d",
+      "frozen": "src/frozen_v12/ichessone_board.h",
+      "frozen_sha256": "9eaf24a2d87ee54671e56cc6a66f7b16c4711048f2d5ef59f187cb74f9b7105d"
+    },
+    {
+      "active": "include/machine_gateway.h",
+      "active_sha256": "5fd3f54e38310781934ebcb17300c990f21d34f2d2b211bdfee6e304ee49bfc5",
+      "frozen": "src/frozen_v12/machine_gateway.h",
+      "frozen_sha256": "4fc7ea9df60530c5cabe044939001bf6895ac2d230801fad68458b34f251f2da"
+    },
+    {
+      "active": "include/millennium_board.h",
+      "active_sha256": "54e76b1c263de66bea97c0fc0286f5ef9b16da2134ab51c2c8bffc53e61ae9c7",
+      "frozen": "src/frozen_v12/millennium_board.h",
+      "frozen_sha256": "54e76b1c263de66bea97c0fc0286f5ef9b16da2134ab51c2c8bffc53e61ae9c7"
+    },
+    {
+      "active": "include/millennium_link_watchdog.h",
+      "active_sha256": "1066be4f5cd9c834077a09f86ae99bbd167937b8a26bcdbdd483d7e8ebc182f5",
+      "frozen": "src/frozen_v12/millennium_link_watchdog.h",
+      "frozen_sha256": "1066be4f5cd9c834077a09f86ae99bbd167937b8a26bcdbdd483d7e8ebc182f5"
+    },
+    {
+      "active": "include/newgame_button.h",
+      "active_sha256": "b1c09a01f8b538288a7f31e7d4109d8e7dc4c096e03383fe35cae21cda168ccf",
+      "frozen": "src/frozen_v12/newgame_button.h",
+      "frozen_sha256": "b1c09a01f8b538288a7f31e7d4109d8e7dc4c096e03383fe35cae21cda168ccf"
+    },
+    {
+      "active": "include/pgn_recorder.h",
+      "active_sha256": "abd9f03b1cba69e9ef326eea91697ddd2f8d7a1bb7c2ad9917b07905ee5f4b35",
+      "frozen": "src/frozen_v12/pgn_recorder.h",
+      "frozen_sha256": "abd9f03b1cba69e9ef326eea91697ddd2f8d7a1bb7c2ad9917b07905ee5f4b35"
+    },
+    {
+      "active": "include/README",
+      "active_sha256": "dc6d9be88119a80edf773eb5a659f4470caf81ed5e95dbfd0cd3c7a9686ccd8c",
+      "frozen": "src/frozen_v12/README",
+      "frozen_sha256": "347170baf5c3013f398bc0f83fa43903acaab07248acd231663644535d229f88"
+    },
+    {
+      "active": "include/usb_pgn_dump.h",
+      "active_sha256": "13238ea74cf87534b14bd9f0ac1c66d9df937a6dc94f33d5ff8eb1ac645cad0b",
+      "frozen": "src/frozen_v12/usb_pgn_dump.h",
+      "frozen_sha256": "13238ea74cf87534b14bd9f0ac1c66d9df937a6dc94f33d5ff8eb1ac645cad0b"
+    },
+    {
+      "active": "include/machine/castle_motion.h",
+      "active_sha256": "6abd1d7142dcd8fe3ce58d84cc6d1fa40be0004a923d580ec48435a564c99270",
+      "frozen": "src/frozen_v12/machine/castle_motion.h",
+      "frozen_sha256": "6abd1d7142dcd8fe3ce58d84cc6d1fa40be0004a923d580ec48435a564c99270"
+    },
+    {
+      "active": "include/machine/delivery_gate.h",
+      "active_sha256": "715e352d30504bd17b5016b47061be0f625909b050a165f59d692d447776bc4c",
+      "frozen": "src/frozen_v12/machine/delivery_gate.h",
+      "frozen_sha256": "715e352d30504bd17b5016b47061be0f625909b050a165f59d692d447776bc4c"
+    },
+    {
+      "active": "include/machine/machine.h",
+      "active_sha256": "8e4479c5d270cf5ef7c987a86e710098ef40303de2e173bc970efc9b231e8f24",
+      "frozen": "src/frozen_v12/machine/machine.h",
+      "frozen_sha256": "df8418236454a2871fbddbc926d099659a722c19dfbc4dce9f61a70e5066e297"
+    },
+    {
+      "active": "include/machine/pending_leds.h",
+      "active_sha256": "a07849787fcdd605e0b1ea69b9593049f4e047f1959ff1aab25400f3de222be4",
+      "frozen": "src/frozen_v12/machine/pending_leds.h",
+      "frozen_sha256": "a07849787fcdd605e0b1ea69b9593049f4e047f1959ff1aab25400f3de222be4"
+    },
+    {
+      "active": "include/machine/players.h",
+      "active_sha256": "1c9e283a5b34fd741c8c0178d4500b35215850c7d595d6561e0a519964ec0e73",
+      "frozen": "src/frozen_v12/machine/players.h",
+      "frozen_sha256": "1c9e283a5b34fd741c8c0178d4500b35215850c7d595d6561e0a519964ec0e73"
+    },
+    {
+      "active": "include/machine/recorder_adapter.inc",
+      "active_sha256": "50773474fb8c487ce4c6ea7b430221b24aa0a8b84efc143db7ad78ce535bc4db",
+      "frozen": "src/frozen_v12/machine/recorder_adapter.inc",
+      "frozen_sha256": "92618d23d3aad856894040eb078b315a7657f2b86eaea379c123da7266696c8a"
+    },
+    {
+      "active": "include/machine/selection.h",
+      "active_sha256": "981ba865f88249e304acb81e5c46691e6d211c50363fbc3567e493fccfccf211",
+      "frozen": "src/frozen_v12/machine/selection.h",
+      "frozen_sha256": "82a583b0e1643fc425946630970e2c33d5791c4f3553ca25079e1e818b9b5cdc"
+    }
+  ]
+}

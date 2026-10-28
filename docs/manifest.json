@@ -1,6 +1,6 @@
 {
   "name": "eChessGw",
-  "version": "v11 (Certabo board support: piece chips are read in at every start, LED suggestions from King/Phoenix and wireless clients; BLE LED highlights no longer mirrored -- see README for details)",
+  "version": "v12",
   "new_install_prompt_erase": true,
   "builds": [
     {
