@@ -1,0 +1,38 @@
+{
+  "bootloader.bin": {
+    "sha256": "30d47ab1f344cfa69f6b2f718ffa72fc7baea6db047eaabefea162db29e6821c",
+    "bytes": 13248
+  },
+  "boot_app0.bin": {
+    "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0",
+    "bytes": 8192
+  },
+  "build-info.json": {
+    "sha256": "1ae8b41fd876ac4e8fa4640d63fa9a49d6f2d8740a3e4865d84ab140f5b7685d",
+    "bytes": 670
+  },
+  "changes.patch": {
+    "sha256": "1d5e4ae659b2fb7fe465edc9aa4d15b0b987c709269cda8d61172ac84f9e5e53",
+    "bytes": 7652
+  },
+  "firmware.bin": {
+    "sha256": "8145c38a2b4cdddb330ae6b1e9c5c68ec25855b08838e59906a8707a8085d6fb",
+    "bytes": 792528
+  },
+  "manifest.json": {
+    "sha256": "88756af98fd83d0184ad8eb58f0a25e84f7378263eca3fbcf17f27f84ed85db8",
+    "bytes": 585
+  },
+  "partitions.bin": {
+    "sha256": "148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1",
+    "bytes": 3072
+  },
+  "README.md": {
+    "sha256": "609d52b2e21c20b1ae14b68712a404a893ddf5f8360d48c82bf87e53bc993893",
+    "bytes": 1695
+  },
+  "source.zip": {
+    "sha256": "a3ab730ca291480648536a40fe89c110b4654f4b23c2ecfa8a4d46090c3e1213",
+    "bytes": 1363549
+  }
+}
