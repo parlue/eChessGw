@@ -1,7 +1,9 @@
 # eChessGw Web Flasher
 
 The normal installer uses `manifest.json`, stable release **V12** for ESP32-C3 SuperMini.
-The tester-confirmed Certabo/Spectrum firmware is promoted byte-for-byte; there is no beta installer.
+The tester-confirmed Certabo/Spectrum firmware remains available byte-for-byte.
+A separate **Chessnut Move BETA (2026-11-05)** installer is offered alongside it,
+with its own manifest, firmware and checksums in `beta/chessnut-move-20261105/`.
 
 - Certabo: normal starting position plus white extra queen d3 and black extra queen d6.
 - Spectrum: normal starting position plus white extra queen e3 and black extra queen e6.

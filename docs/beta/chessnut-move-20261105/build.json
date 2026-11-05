@@ -1,0 +1,12 @@
+{
+  "version": "2026-11-05-move-beta",
+  "environment": "esp32-c3-supermini",
+  "gateway_base_commit": "b113059a9330117ed2f855de7cd431620644dfe1",
+  "firmware_sha256": "ab54562d62871e2148c82170104c11e84e36777ee798c33d636ddcafc52e43a8",
+  "validation": {
+    "gateway_runtime_scenarios_passed": 95,
+    "move_driver_simulations": "passed",
+    "firmware_build": "passed",
+    "flashed_by_this_change": false
+  }
+}

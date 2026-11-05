@@ -1,3 +1,6 @@
 # Preserve checksummed release packages and frozen source bytes across platforms.
 docs/releases/** -text
 src/frozen_v12/** -text
+
+# Preserve checksummed Move beta packages byte-for-byte.
+docs/beta/chessnut-move-20261105/** -text
