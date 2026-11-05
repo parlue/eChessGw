@@ -1,0 +1,25 @@
+{
+  "beta": "Chessnut BT LED Beta1",
+  "date": "2026-11-05",
+  "environment": "esp32-c3-supermini_ChessnutBtLedBeta",
+  "changed_sources": [
+    "src/board_driver.cpp",
+    "src/chesslink_server.cpp",
+    "src/chessnut_board.cpp",
+    "include/board_driver.h",
+    "include/chessnut_ble_leds.h",
+    "include/chessnut_board.h"
+  ],
+  "original_source_files_verified": 302,
+  "normalizer_cases": 110,
+  "dispatch_cases": 200,
+  "hardware_tested": false,
+  "flashed": false,
+  "static_ram_bytes": 79572,
+  "flash_used_bytes": 740364,
+  "dependencies": {
+    "espressif32": "7.0.1",
+    "arduino-esp32": "2.0.17",
+    "NimBLE-Arduino": "2.5.1"
+  }
+}
