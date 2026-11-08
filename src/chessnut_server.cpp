@@ -8,6 +8,7 @@
 
 #include "chessnut_board.h"
 #include "chessnutmove_board.h"
+#include "chessnutmove_control.h"
 #include "chesslink_server.h"
 #include "cynus_board.h"
 #include "ichessone_board.h"
@@ -406,9 +407,7 @@ void relayLedCommandToBoard(const uint8_t bytes8[8]) {
       chessnutSetHighlightedSquares(highlights, count);
       break;
     case BoardType::ChessnutMove:
-      // Same shape as Cynus just above: Move has no per-square LEDs either,
-      // it's a robotic board -- forwarded to execute the move physically.
-      // User's own spec 2026-10-06: "wesendet keine leds sondern zuege".
+      // Move supports display LEDs and a guarded legal-move compatibility path.
       chessnutmoveExecuteHighlightedMove(highlights, count);
       break;
     case BoardType::IChessOne:
@@ -444,6 +443,20 @@ void relayLedCommandToBoard(const uint8_t bytes8[8]) {
 void handleMainWrite(const uint8_t* data, size_t length) {
   static constexpr uint8_t kAck[] = {0x23, 0x01, 0x00};
   logHex("received", data, length);
+  if (currentBoardType()==BoardType::ChessnutMove && length==35 && data[0]==0x42 && data[1]==0x21) {
+    char target[64];
+    if (chessnutMoveDecodeTarget(data,target) && chessnutmoveSetTargetPosition(target) && !chessnutmoveIsBusyMoving()) {
+      haveSentBoardFrame=false; sendBoardFrame(); // Explicit no-op/setup confirmation.
+    }
+    return; // Explicit Move Normal target, never passed to another board type.
+  }
+  if (currentBoardType()==BoardType::ChessnutMove && length==34 && data[0]==0x43 && data[1]==0x20) {
+    SquareHighlight squares[64]; size_t count=0;
+    for (int raw=0;raw<64;++raw) if ((data[2+raw/2]>>(4*(raw%2)))&15)
+      squares[count++]={uint8_t(63-raw),SquareHighlightRole::Generic};
+    chessnutmoveSetHighlightedSquares(squares,count); // Display only, no motors.
+    return;
+  }
   if (length >= 3 && data[0] == 0x21 && data[1] == 0x01 && data[2] == 0x00) {
     // Enter real-time mode: ack, then push the current board immediately --
     // mirrors what a real board does right after this command, which this

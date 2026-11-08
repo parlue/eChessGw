@@ -4,3 +4,8 @@ src/frozen_v12/** -text
 
 # Preserve checksummed Move beta packages byte-for-byte.
 docs/beta/chessnut-move-20261105/** -text
+
+# V13 Move: active source uses LF; frozen bytes remain immutable.
+src/*.cpp text eol=lf
+include/** text eol=lf
+src/v13_move/** -text

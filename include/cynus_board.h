@@ -60,4 +60,5 @@ bool cynusSetupPosition(const std::string& fenPlacement);
 // Cancel a not-yet-executed LED candidate on an explicit machine New Game.
 // Does not interrupt a robot movement already sent to the hardware.
 void cynusCancelPendingMachineMove();
+bool cynusExecuteMachinePromotion(int from, int to, char piece);
 #endif

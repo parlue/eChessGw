@@ -1,0 +1,9 @@
+{
+  "boot_app0.bin": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0",
+  "bootloader.bin": "30d47ab1f344cfa69f6b2f718ffa72fc7baea6db047eaabefea162db29e6821c",
+  "eChessGw-firmware.bin": "26863b2ad685ce30ff51c9a35d64eb96fbc2fb00fd6d0b65fabfc3e564226039",
+  "FREEZE.json": "9cd8afe2af317ca6be82104fcb74f7df1378f4987237074c8504fcd2b7348ca9",
+  "manifest.json": "583cf1606e43642fd643ae3c3ed141352678d08a7da8d29e1ff35de4c926b728",
+  "partitions.bin": "148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1",
+  "README.md": "22b3feea5fbacb6bf3cc671c8636db263e7e899839472170f300c68f24bb8e40"
+}

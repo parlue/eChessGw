@@ -23,6 +23,11 @@ constexpr char kRxUuid[] = "49535343-8841-43f4-a8d4-ecbe34729bb3";
 NimBLEServer* server = nullptr;
 NimBLECharacteristic* txChar = nullptr;
 NimBLECharacteristic* rxChar = nullptr;
+#ifdef CHESSLINK_ENABLE_MACHINE
+constexpr char kPositionUuid[] = "773a1001-7e5b-4c2a-9d13-619b8e04f260";
+bool startingPositionPending = false;
+uint32_t startingPositionAt = 0;
+#endif
 bool started = false;
 bool connected = false;
 bool notifyEnabled = false;
@@ -203,7 +208,18 @@ void appendHex(uint8_t* out, size_t& pos, uint8_t value) {
 // clearBoardLeds()) instead of driving a single hardcoded board type.
 void handleFrame(const uint8_t* frame, size_t length) {
   switch (frame[0]) {
+#ifdef CHESSLINK_ENABLE_MACHINE
+    case 's':
+      if (length == 67 && machineGatewaySoftwarePosition(frame)) {
+        startingPositionPending = true;
+        startingPositionAt = millis();
+      }
+      break;
+#endif
     case 'S':
+#ifdef CHESSLINK_ENABLE_MACHINE
+      if (machineGatewayActive()) machineGatewaySoftwarePoll();
+#endif
       if (sendStatus("S command")) statusRefresh.reset();
       break;
     case 'V':
@@ -432,7 +448,7 @@ RxCallbacks rxCallbacks;
 void processByte(uint8_t raw) {
   rxFrame[rxFrameLength++] = raw & 0x7f;
   while (rxFrameLength > 0) {
-    const size_t expected = modeBCommandLength(rxFrame[0]);
+    const size_t expected = rxFrame[0] == 's' ? 67 : modeBCommandLength(rxFrame[0]);
     if (expected == 0) {
       memmove(rxFrame, rxFrame + 1, --rxFrameLength);
       continue;
@@ -469,6 +485,11 @@ void chesslinkServerInit() {
   rxChar = service->createCharacteristic(kRxUuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   txChar->setCallbacks(&txCallbacks);
   rxChar->setCallbacks(&rxCallbacks);
+#ifdef CHESSLINK_ENABLE_MACHINE
+  // Optional full-position input for the Core2 virtual board. No new-game opcode.
+  auto* positionInput = service->createCharacteristic(kPositionUuid, NIMBLE_PROPERTY::WRITE);
+  positionInput->setCallbacks(&rxCallbacks);
+#endif
   server->start();
 
   initialized = true;
@@ -513,6 +534,12 @@ bool chesslinkServerConnected() { return connected; }
 
 void chesslinkServerPoll() {
   if (!started) return;
+#ifdef CHESSLINK_ENABLE_MACHINE
+  if (startingPositionPending && (machineGatewayNewgamePublished() || millis()-startingPositionAt >= 5000 || !connected)) {
+    startingPositionPending = false;
+    machineGatewayNewgameFinish();
+  }
+#endif
   RawPacket packet;
   while (rxQueue != nullptr && xQueueReceive(rxQueue, &packet, 0) == pdTRUE) {
     statusRefresh.noteTraffic(millis());

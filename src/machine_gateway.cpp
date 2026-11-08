@@ -1,10 +1,14 @@
 #include "machine_gateway.h"
+#include "chessnutmove_board.h"
+#include "cynus_board.h"
 #ifdef CHESSLINK_ENABLE_MACHINE
 #include "machine/machine.h"
 #include "machine/castle_motion.h"
 #include "machine/delivery_gate.h"
 #include "machine/pending_leds.h"
 #include "machine/players.h"
+#include "machine/cable_echo.h"
+#include "machine/physical_promotion.h"
 #include "chesslink_server.h"
 #include "pgn_recorder.h"
 #include "cable_status_policy.h"
@@ -41,12 +45,33 @@ MachineDeliveryGate delivery;
 bool softwareStepSent = false;
 uint32_t softwareStepSentAt = 0;
 bool castlingMotion = false;
-uint64_t lastMoveFields = 0;
-uint32_t conflictStartedAt = 0, conflictLastAt = 0;
+MachineCableEcho cableEcho;
+MachinePhysicalPromotion physicalPromotion;
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+MachineVirtualOperator virtualOperator;
+const uint8_t* originalVirtualCableStatus() {
+  return !selection.board() && virtualOperator.cableOverride ? virtualOperator.sourceFrame : statusFrame;
+}
+#else
+const uint8_t* originalVirtualCableStatus() { return statusFrame; }
+#endif
+
+const uint8_t* virtualCableStatus() {
+  if (physicalPromotion.active() && physicalPromotion.phase!=MachinePhysicalPromotion::Blocked &&
+      !physicalPromotion.sourceSoftware && !robotConfirmedReplay) return physicalPromotion.frame;
+  return originalVirtualCableStatus();
+}
 
 size_t sendCable(const uint8_t* frame, size_t n) {
   const size_t written = machineGatewayWriteCable(frame, n);
   lastStatusAt = millis();
+  if (physicalPromotion.negotiating() && !physicalPromotion.sourceSoftware &&
+      n==67 && written==n && !memcmp(frame,physicalPromotion.frame,n))
+    physicalPromotion.delivery.sent(millis());
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  if (!selection.board() && virtualOperator.cableOverride && n == 67 && written == n &&
+      !memcmp(frame, virtualOperator.sourceFrame, n)) virtualOperator.sourceDelivery.sent(millis());
+#endif
   if (n == 67 && frame[0] == 's' && written == n && memcmp(frame, statusFrame, n) == 0) {
     if (!delivery.sends) Serial.printf("[MACHINE TX] stage=%d status=%.*s\r\n", movementStage, int(n), frame);
     delivery.sent(millis());
@@ -54,26 +79,49 @@ size_t sendCable(const uint8_t* frame, size_t n) {
   return written;
 }
 
-bool observeCableConflict(uint64_t mask) {
-  // Sustained indications on the just-moved pieces can be a correction
-  // request. They are not a position ACK; stop conservatively for inspection.
-  if (lifting || halted) return halted;
-  const uint32_t now = millis();
-  if (machineCouldBeMoveFields(mask)) {
-    conflictStartedAt = conflictLastAt = 0;
-    return false;
-  }
-  if (mask && (mask & lastMoveFields) && !(mask & ~lastMoveFields)) {
-    if (!conflictStartedAt || now - conflictLastAt > 2500) conflictStartedAt = now;
-    conflictLastAt = now;
-    if (now - conflictStartedAt >= 5000) {
-      halted = true;
-      Serial.printf("[MACHINE] STOP: persistent LED correction on previous move; inspect host position\r\n");
-    }
-  }
-  return halted;
-}
 uint32_t validCommands = 0, invalidCommands = 0;
+uint32_t lastStateLogAt = 0;
+uint64_t lastSoftwareFields = 0;
+uint32_t lastSoftwareLedAt = 0;
+
+void logRuntimeState() {
+  const uint32_t now = millis();
+  if (now - lastStateLogAt < 10000) return;
+  lastStateLogAt = now;
+  Serial.printf("[MACHINE STATE] turn=%s expects=%s halted=%d lifting=%d stage=%d candidate=%c%d-%c%d pending=%u cableReports=%u softwareSent=%d positionAge=%lu cableCommands=%lu invalid=%lu softwareLedAge=%lu fields=%08lX%08lX\r\n",
+    machineWhiteToMove() ? "white" : "black",
+    players.accepts(true, machineWhiteToMove()) ? "software" : "cable",
+    halted, lifting, movementStage,
+    candidateFrom >= 0 ? 'a' + candidateFrom % 8 : '-', candidateFrom >= 0 ? candidateFrom / 8 + 1 : 0,
+    candidateTo >= 0 ? 'a' + candidateTo % 8 : '-', candidateTo >= 0 ? candidateTo / 8 + 1 : 0,
+    pendingLeds.count, delivery.sends, softwareStepSent,
+    static_cast<unsigned long>(now - lastPositionAt), static_cast<unsigned long>(validCommands),
+    static_cast<unsigned long>(invalidCommands), static_cast<unsigned long>(now - lastSoftwareLedAt),
+    static_cast<unsigned long>(lastSoftwareFields >> 32), static_cast<unsigned long>(uint32_t(lastSoftwareFields)));
+  if (selection.board()) {
+    Serial.printf("[MACHINE STATE PHYSICAL] type=%u online=%d synchronized=%d awaitingStart=%d atPosition=%d robotReplay=%d target=%.*s\r\n",
+      unsigned(currentBoardType()), boardOnline, boardSynchronized, awaitingStart,
+      physicalAtPosition, robotConfirmedReplay, lifting ? 64 : 0, physicalExpected);
+  }
+  if (physicalPromotion.active()) {
+    Serial.printf("[PROMOTION STATE] phase=%u source=%s choice=%u figure=%c sent=%u clear=%d evidence=%u paused=%d\r\n",
+      unsigned(physicalPromotion.phase),physicalPromotion.sourceSoftware?"software":"cable",
+      physicalPromotion.choice,physicalPromotion.count?physicalPromotion.plan().promotion:'-',
+      physicalPromotion.delivery.sends,physicalPromotion.ack.clearSeen,physicalPromotion.ack.evidence,physicalPromotion.paused);
+  }
+  char board[64]; machineBoard(board);
+  Serial.printf("[MACHINE STATE BOARD] committed-a1-first=%.*s published-wire=%.*s\r\n",
+    64, board, 67, statusFrame);
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  if (virtualOperator.active()) {
+    const auto& op = virtualOperator;
+    Serial.printf("[VBOARD STATE] phase=%u step=%u source=%s choice=%c clear=%d evidence=%u responsive=%d next=%d\r\n",
+      unsigned(op.phase), op.step, op.sourceSoftware ? "software" : "cable",
+      op.planCount && op.plan().promotion ? op.plan().promotion : '-',
+      op.ack.clearSeen, op.ack.evidence, op.ack.responsive(now), op.nextFound);
+  }
+#endif
+}
 
 void logLed(bool white, const uint8_t* frame, const char* reason,
             uint64_t mask, int matches) {
@@ -125,8 +173,16 @@ int nibble(uint8_t c) {
   if (c >= 'a' && c <= 'f') return c - 'a' + 10;
   return -1;
 }
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+#include "machine/virtual_operator_runtime.inc"
+#else
+int virtualFindMove(uint64_t fields, int& from, int& to) { return selection.board() ? machineFindVirtualMove(fields, from, to) : machineFindMove(fields, from, to); }
+#endif
+#include "machine/physical_promotion_runtime.inc"
+
 void led(bool white, const uint8_t* frame) {
   if (newgameHold) return;
+  if (physicalPromotionLed(white,frame)) return;
   // After an explicit New Game, discard old host highlights until the actual
   // board has been rebuilt. Initial board discovery still retains an opening.
   if (awaitingStart) return;
@@ -134,8 +190,19 @@ void led(bool white, const uint8_t* frame) {
   const size_t feedbackCount = decodeKingLedFrame(frame, feedback, 64);
   uint64_t feedbackMask = 0;
   for (size_t i = 0; i < feedbackCount; ++i) feedbackMask |= uint64_t(1) << feedback[i].squareIndex;
+  if (white) { lastSoftwareFields = feedbackMask; lastSoftwareLedAt = millis(); }
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  if (virtualLed(white, frame, feedbackMask)) {
+    logLed(white, frame, "virtual-feedback", feedbackMask, virtualOperator.nextFound ? 1 : 0);
+    return;
+  }
+#endif
   if (feedbackMask == UINT64_MAX) {
     logLed(white, frame, "all-board-initialization", feedbackMask, -1);
+    return;
+  }
+  if (!selection.board() && !white && cableEcho.ignores(feedbackMask)) {
+    logLed(white, frame, "completed-cable-move-echo", feedbackMask, -1);
     return;
   }
   if (!halted && lifting && chesslinkServerMachineSubscribed() && !players.accepts(white, machineWhiteToMove())) {
@@ -147,7 +214,6 @@ void led(bool white, const uint8_t* frame) {
     }
     return;
   }
-  if (!selection.board() && players.assigned() && !white && observeCableConflict(feedbackMask)) return;
   if (halted || lifting || !chesslinkServerMachineSubscribed() ||
       !players.accepts(white, machineWhiteToMove())) {
     logLed(white, frame, halted ? "halted" : lifting ? "lifting" :
@@ -165,7 +231,7 @@ void led(bool white, const uint8_t* frame) {
   if (!players.assigned()) {
     const uint64_t opening = players.accumulate(white, mask, now);
     int from = -1, to = -1;
-    const int matches = machineFindMove(opening, from, to);
+    const int matches = virtualFindMove(opening, from, to);
     logLed(white, frame, "opening", opening, matches);
     if (matches != 1) return;
     players.assignFirst(white);
@@ -173,6 +239,46 @@ void led(bool white, const uint8_t* frame) {
     mask = opening;
     Serial.printf("[MACHINE] colours: software=%s cable=%s\r\n",
       white ? "white" : "black", white ? "black" : "white");
+  }
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  if (!selection.board()) {
+    char board[64]; machineBoard(board);
+    auto ownFields = [&](uint64_t fields) {
+      uint64_t own = 0;
+      for (int sq = 0; sq < 64; ++sq) if (fields & (uint64_t(1) << sq)) {
+        const char piece = board[sq];
+        if (machineWhiteToMove() ? (piece >= 'A' && piece <= 'Z') : (piece >= 'a' && piece <= 'z'))
+          own |= uint64_t(1) << sq;
+      }
+      return own;
+    };
+    int f = -1, t = -1;
+    if (virtualFindMove(mask, f, t) == 1) {
+      // An atomic command also supersedes partial cable-side corrections.
+      if (hints & ~mask) resetHints();
+    } else {
+      if (now - hintAt > 2000) resetHints();
+      const uint64_t source = ownFields(mask), previousSource = ownFields(hints);
+      if (source && source != previousSource) resetHints();
+      if (!source && !previousSource) {
+        logLed(white, frame, "destination-before-fresh-source", mask, 0);
+        return;
+      }
+    }
+  }
+#endif
+  if (white) {
+    // M5 sends a complete move once, unlike Phoenix's blinking endpoints.
+    // A queued echo of the previous move may still contain a square that
+    // happens to be usable by the new side (e.g. d4 for ...d5-d4). Never
+    // merge it into an independently valid new software move, including
+    // when a physical robot executes the duel: there may
+    // be no second LED frame to expire the old square and recover.
+    int from = -1, to = -1;
+    if ((hints & ~mask) && virtualFindMove(mask, from, to) == 1) {
+      logLed(white, frame, "fresh-software-move-replaces-stale-fields", mask, 1);
+      resetHints();
+    }
   }
   if (now - hintAt > 2000) resetHints();
   hintAt = now;
@@ -189,7 +295,7 @@ void led(bool white, const uint8_t* frame) {
     for (int sq = 0; sq < 64; ++sq) if (mask & (uint64_t(1) << sq)) fieldSeenAt[sq] = now;
   }
   int from = -1, to = -1;
-  const int matches = machineFindMove(hints, from, to);
+  const int matches = virtualFindMove(hints, from, to);
   logLed(white, frame, matches == 1 ? "candidate" : "no-unique-move", hints, matches);
   if (matches != 1) { candidateFrom = candidateTo = -1; return; }
   if (candidateFrom != from || candidateTo != to) {
@@ -217,14 +323,30 @@ void command(const uint8_t* frame, size_t length) {
     timing.observe(true, memcmp(a, b, 2) == 0);
   }
   switch (frame[0]) {
-    case 'S': sendCable(statusFrame, 67); break;
+    case 'S':
+      physicalPromotionHostPoll(false);
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+      virtualHostPoll(false);
+#endif
+      sendCable(virtualCableStatus(), 67); break;
     case 'V': reply((const uint8_t*)"v0100", 5); break;
-    case 'X': players.clearOpening(false); if (!lifting && players.accepts(false, machineWhiteToMove())) resetHints(); reply((const uint8_t*)"x", 1); break;
+    case 'X':
+      if (physicalPromotionClear(false)) { reply((const uint8_t*)"x",1); break; }
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+      virtualHostClear(false);
+#endif
+      players.clearOpening(false);
+      if (!lifting && players.accepts(false, machineWhiteToMove())) {
+        resetHints();
+        if (!selection.board()) cableEcho.clear();
+      }
+      reply((const uint8_t*)"x", 1);
+      break;
     // Cable-side King/module reset: preserve its established behavior.
     case 'T': machineGatewayResetGame(); break;
     case 'L':
       reply((const uint8_t*)"l", 1);
-      sendCable(statusFrame, 67);
+      sendCable(virtualCableStatus(), 67);
       led(false, frame);
       break;
     case 'R': case 'W': {
@@ -254,6 +376,7 @@ void ensureStarted() {
   pinMode(9, INPUT_PULLUP);
   char board[64]; machineBoard(board); publish(board);
   Serial.println("[MACHINE] selected: virtual board; first legal opening selects colours");
+  Serial.println("[MACHINE] virtual cable echo guard: 2026-11-02");
 }
 } // namespace
 
@@ -292,8 +415,18 @@ void machineGatewaySoftwareLed(const uint8_t frame[167]) {
   if (runtimeStarted) led(true, frame); // Original BLE raster, no physical-board rotation.
 }
 void machineGatewaySoftwareClear() {
+  if (physicalPromotionClear(true)) return;
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  virtualHostClear(true);
+#endif
   players.clearOpening(true);
   if (!lifting && players.accepts(true, machineWhiteToMove())) resetHints();
+}
+void machineGatewaySoftwarePoll() {
+  physicalPromotionHostPoll(true);
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  virtualHostPoll(true);
+#endif
 }
 static void restartMachineGame(bool resetConfiguration) {
   if (!selection.machine()) return;
@@ -301,17 +434,25 @@ static void restartMachineGame(bool resetConfiguration) {
   // Save only complete positions. An interrupted lift must never enter PGN.
   // Repeated startup resets with no opening do not create empty games.
   if (players.assigned() || lifting || halted) machineRecorderRestart();
+  physicalPromotion.reset();
   machineReset();
   players.reset(); pendingLeds.clear(); resetHints();
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  virtualOperator.reset();
+#endif
   halted = lifting = castlingMotion = robotConfirmedReplay = false;
   movementStage = 0;
   liftedAt = hintAt = candidateAt = softwareStepSentAt = 0;
-  lastMoveFields = 0; conflictStartedAt = conflictLastAt = 0;
+  cableEcho.clear();
   if (resetConfiguration) {
     memset(registers, 0, sizeof(registers));
     registers[1] = 0x14; registers[4] = 0x0f;
   }
   gameAdvanced = false;
+  // A known new starting position reopens board discovery. Never replace an
+  // existing physical-board selection or infer a reset from a disconnect.
+  if (!boardOnline && selection.reopenAtStart())
+    Serial.println("[MACHINE] starting position: board radio search reopened");
   awaitingStart = selection.board();
   boardSynchronized = !awaitingStart;
   if (selection.board() && boardOnline) machineGatewayCancelBoardCommand();
@@ -327,7 +468,7 @@ bool machineGatewayNewgameAllowed() {
   return selection.machine() && !selection.board() && !boardOnline && chesslinkServerMachineSubscribed();
 }
 bool machineGatewaySoftNewgame() {
-  if (!machineGatewayNewgameAllowed()) return false;
+  if (newgameHold || !machineGatewayNewgameAllowed()) return false;
   newgameHold = true;
   restartMachineGame(false);
   return true;
@@ -335,8 +476,14 @@ bool machineGatewaySoftNewgame() {
 bool machineGatewayNewgamePublished() {
   if (!machineGatewayNewgameAllowed()) return false;
   char board[64]; machineBoard(board);
-  return !memcmp(board, startingBoard, 64) && delivery.sends > 0 &&
+  return !memcmp(board, startingBoard, 64) && delivery.ready(millis(), 500) &&
          chesslinkServerMachineStatusSent(statusFrame);
+}
+bool machineGatewaySoftwarePosition(const uint8_t frame[67]) {
+  if (frame[0] != 's' || !modeBValidBlock(frame, 67) || !machineGatewayNewgameAllowed()) return false;
+  for (int sq = 0; sq < 64; ++sq)
+    if ((frame[1 + modeBStatusWireIndex(sq % 8, sq / 8 + 1)] & 127) != startingBoard[sq]) return false;
+  return machineGatewaySoftNewgame();
 }
 void machineGatewayNewgameFinish() { newgameHold = false; }
 void machineGatewayBoardStatus(const uint8_t frame[67]) {
@@ -363,9 +510,14 @@ void machineGatewayBoardStatus(const uint8_t frame[67]) {
     Serial.println("[MACHINE] physical board synchronized");
   }
   physicalAtPosition = !memcmp(actual, current, 64);
+  if (physicalPromotion.negotiating()) {
+    if (!physicalAtPosition) physicalPromotionFail("board changed during figure confirmation");
+    return;
+  }
   if (robotConfirmedReplay) return; // Do not replace an in-progress confirmed replay.
+  if (physicalPromotion.phase==MachinePhysicalPromotion::Executing && memcmp(actual,physicalExpected,64)) return;
   bool complete = false;
-  if (lifting && !memcmp(actual, physicalExpected, 64) && currentBoardType() == BoardType::Cynus) {
+  if (lifting && !memcmp(actual, physicalExpected, 64) && (currentBoardType() == BoardType::Cynus || currentBoardType() == BoardType::ChessnutMove)) {
     // The robot reports only a confirmed camera snapshot. Adapt that snapshot
     // to ChessLink steps AFTER execution, never before the physical scan.
     robotConfirmedReplay = true;
@@ -377,7 +529,12 @@ void machineGatewayBoardStatus(const uint8_t frame[67]) {
     return;
   }
   if (lifting && !memcmp(actual, physicalExpected, 64)) {
-    machineCommit(candidateFrom, candidateTo);
+    if (physicalPromotion.phase==MachinePhysicalPromotion::Executing) {
+      if (!machineCommitVirtual(physicalPromotion.plan())) {
+        physicalPromotionFail("confirmed promotion is no longer legal"); return;
+      }
+      physicalPromotion.reset();
+    } else machineCommit(candidateFrom, candidateTo);
     gameAdvanced = true;
     lifting = false; resetHints();
     complete = true;
@@ -394,20 +551,30 @@ void machineGatewayBoardStatus(const uint8_t frame[67]) {
 void machineGatewayPoll() {
   if (!selection.machine()) return;
   ensureStarted();
+  // BLE S replies use the server's cache, bypassing machineGatewayStatus.
+  // Log from the actual runtime loop so a stalled one-shot move stays visible.
+  logRuntimeState();
   if (!softwareStepSent && chesslinkServerMachineStatusSent(statusFrame)) {
     softwareStepSent = true;
     softwareStepSentAt = millis();
   }
   uint32_t now = millis();
   if (cableSeen && timing.allowActiveGoStatus() && now - lastStatusAt >= 41)
-    sendCable(statusFrame, 67);
-  if (newgameHold) return;
+    sendCable(virtualCableStatus(), 67);
+  if (newgameHold) {
+    // Rebuild all 64 fields on both hosts even when Phoenix has stopped
+    // querying after a finished game. A single UART write is insufficient
+    // evidence of a stable new physical-board position.
+    if (!selection.board() && cableSeen && delivery.sends < 3 && now-lastStatusAt >= 200)
+      sendCable(statusFrame, 67);
+    return;
+  }
   // A physical robot can finish after Phoenix has stopped sending LED
   // requests. Deliver confirmed replay stages (and their final position)
   // without depending on a new request to open a reply slot. Keep this
   // bounded and exclusive to the Cynus intermediary; virtual-only and
   // ordinary cable timing are unchanged.
-  if (selection.board() && currentBoardType() == BoardType::Cynus &&
+  if (selection.board() && (currentBoardType() == BoardType::Cynus || currentBoardType() == BoardType::ChessnutMove) &&
       boardOnline && boardSynchronized && !awaitingStart && cableSeen &&
       (robotConfirmedReplay || (gameAdvanced && !lifting)) &&
       !timing.allowActiveGoStatus() && delivery.sends < 3 &&
@@ -415,9 +582,19 @@ void machineGatewayPoll() {
     sendCable(statusFrame, 67);
   const bool ready = cableSeen && chesslinkServerMachineSubscribed() &&
       (!selection.board() || (boardOnline && boardSynchronized && !awaitingStart && (lifting || physicalAtPosition)));
-  if (selection.board() && lifting && !robotConfirmedReplay && ready && now - physicalLedAt >= 500) {
+  if (physicalPromotion.negotiating()) {
+    physicalPromotionPoll(now,ready); return;
+  }
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+  if (!selection.board() && virtualOperator.active()) {
+    virtualPoll(now, ready);
+    return;
+  }
+#endif
+  if (selection.board() && lifting && !robotConfirmedReplay && ready && !physicalPromotion.active() && now - physicalLedAt >= 500) {
     // Robot driver receives the same stable command until its scan confirms it.
-    dispatchLedFrameToBoard(currentBoardType(), physicalLed);
+    if (currentBoardType()==BoardType::ChessnutMove) chessnutmoveSetTargetPosition(physicalExpected);
+    else dispatchLedFrameToBoard(currentBoardType(), physicalLed);
     physicalLedAt = now;
   }
   if (!ready) softwareStepSent = false;
@@ -428,7 +605,7 @@ void machineGatewayPoll() {
   if (ready && !halted && !lifting && pendingLeds.count &&
       now - lastPositionAt >= 1200 && delivery.ready(now, 500) && softwareStepSent) {
     int from = -1, to = -1;
-    const int matches = pendingLeds.resolve(machineFindMove, from, to);
+    const int matches = pendingLeds.resolve(virtualFindMove, from, to);
     if (matches == 1) {
       candidateFrom = from; candidateTo = to; candidateAt = now - 350;
     } else if (matches == 0) {
@@ -450,9 +627,11 @@ void machineGatewayPoll() {
       Serial.printf("[MACHINE] STOP: queued LEDs have %s legal continuation\r\n", matches ? "multiple" : "no");
     }
   }
+  // Original movement timing; stale software hints are handled at reception.
+  const uint32_t movementHoldMs = castlingMotion ? 1000u : 500u;
   if (!ready) { if (!lifting && !chesslinkServerMachineSubscribed()) resetHints(); }
-  else if ((!selection.board() || robotConfirmedReplay) && !halted && lifting && delivery.ready(now, castlingMotion ? 1000 : 500) &&
-           softwareStepSent && now - softwareStepSentAt >= (castlingMotion ? 1000u : 500u)) {
+  else if ((!selection.board() || robotConfirmedReplay) && !halted && lifting && delivery.ready(now, movementHoldMs) &&
+           softwareStepSent && now - softwareStepSentAt >= movementHoldMs) {
     char before[64], intermediate[64]; machineBoard(before);
     ++movementStage;
     if (movementStage < 3 && machineCastleStage(before, intermediate, candidateFrom, candidateTo, movementStage)) {
@@ -465,7 +644,13 @@ void machineGatewayPoll() {
       Serial.printf("[MACHINE] capture: victim removed from %c%d\r\n", 'a' + captured % 8, captured / 8 + 1);
     } else {
     char oldBoard[64]; machineBoard(oldBoard);
-    machineCommit(candidateFrom, candidateTo);
+    const bool cableMoved = players.accepts(false, machineWhiteToMove());
+    if (physicalPromotion.phase==MachinePhysicalPromotion::Executing) {
+      if (!machineCommitVirtual(physicalPromotion.plan())) {
+        physicalPromotionFail("confirmed promotion is no longer legal"); return;
+      }
+      physicalPromotion.reset();
+    } else machineCommit(candidateFrom, candidateTo);
     gameAdvanced = true;
     lifting = false; resetHints();
     if (robotConfirmedReplay) {
@@ -474,16 +659,17 @@ void machineGatewayPoll() {
       clearBoardLeds(currentBoardType());
     }
     char board[64]; machineBoard(board);
-    lastMoveFields = 0; conflictStartedAt = conflictLastAt = 0;
-    for (int sq = 0; sq < 64; ++sq) if (oldBoard[sq] != board[sq]) lastMoveFields |= uint64_t(1) << sq;
+    if (!selection.board() && cableMoved) {
+      uint64_t fields = 0;
+      for (int sq = 0; sq < 64; ++sq) if (oldBoard[sq] != board[sq]) fields |= uint64_t(1) << sq;
+      cableEcho.completed(fields);
+    }
     publish(board);
     Serial.println("[MACHINE] move completed; position published to both hosts");
     }
   } else if (!halted && !lifting && candidateFrom >= 0 &&
              now - candidateAt >= 350 && now - lastPositionAt >= 1200 &&
              delivery.ready(now, 500) && softwareStepSent && ready) {
-    // Do not execute a proposed next move while recent correction LEDs persist.
-    if (conflictStartedAt && now - conflictLastAt < 2500) { delay(1); return; }
     if (pendingLeds.count) {
       Serial.printf("[MACHINE] executing queued move %c%d-%c%d after completed position\r\n",
         'a' + candidateFrom % 8, candidateFrom / 8 + 1, 'a' + candidateTo % 8, candidateTo / 8 + 1);
@@ -491,15 +677,22 @@ void machineGatewayPoll() {
     }
     if (selection.lockVirtual()) {
       machineGatewayStopBoardSearch();
-      Serial.println("[MACHINE] virtual game locked: board radio search stopped until reboot");
+      Serial.println("[MACHINE] virtual game locked: board radio search stopped until new starting position");
     }
     if (selection.board()) {
       if (!boardOnline || !boardSynchronized || awaitingStart) return;
+      const unsigned planCount=machineVirtualPlans(candidateFrom,candidateTo,physicalPromotion.plans,4);
+      if (planCount>1) { physicalPromotionStart(planCount); return; }
       if (!machinePreview(candidateFrom, candidateTo, physicalExpected)) return;
       char before[64]; machineBoard(before);
       uint8_t squares[4]; size_t count = 0;
+      const bool cynusMove = currentBoardType() == BoardType::Cynus;
+      // Cynus's raw LED decoder expects one endpoint pair, including for
+      // castling and en passant. Its firmware handles the rook/captured
+      // pawn. The full physicalExpected target still confirms ALL changes.
       for (int sq = 0; sq < 64 && count < 4; ++sq)
-        if (before[sq] != physicalExpected[sq]) {
+        if (before[sq] != physicalExpected[sq] &&
+            (!cynusMove || sq == candidateFrom || sq == candidateTo)) {
           // Cynus consumes a file-ascending, rank-8-first LED grid.
           // encodeLedFrame produces the opposite cable wire orientation.
           // Adapt only this generated machine command, never host frames
@@ -509,10 +702,18 @@ void machineGatewayPoll() {
       encodeLedFrame(squares, count, physicalLed, false);
       lifting = true;
       physicalLedAt = now;
-      dispatchLedFrameToBoard(currentBoardType(), physicalLed);
+      if (currentBoardType()==BoardType::ChessnutMove) chessnutmoveSetTargetPosition(physicalExpected);
+      else dispatchLedFrameToBoard(currentBoardType(), physicalLed);
       Serial.println("[MACHINE] move sent to physical board; waiting for actual position");
       return;
     }
+#ifdef CHESSLINK_VIRTUAL_OPERATOR_V2
+    if (!virtualStart()) {
+      halted = true;
+      Serial.println("[VBOARD] STOP: no legal movement plan");
+    }
+    return;
+#else
     // Give the unchanged PGN recorder (>600ms settle) each full position.
     char board[64]; machineBoard(board);
     movementStage = 0;
@@ -521,6 +722,7 @@ void machineGatewayPoll() {
     board[candidateFrom] = '.';
     lifting = true;
     publish(board, false); liftedAt = now;
+#endif
   }
   static uint32_t pressedAt = 0;
   if (digitalRead(9) == LOW) {

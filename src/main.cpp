@@ -16,6 +16,9 @@
 #include "pgn_recorder.h"
 #include "machine_gateway.h"
 #include "newgame_button.h"
+#ifdef CHESSLINK_TRACE_CABLE_RAW
+#include "cable_raw_trace.h"
+#endif
 #ifdef CHESSLINK_ENABLE_CERTABO
 #include "certabo_board.h"
 #endif
@@ -41,6 +44,24 @@ uint8_t uartFrame[kFrameBufferSize];
 size_t uartFrameLength = 0;
 uint32_t rawUartRxBytes = 0;
 uint32_t discardedUartRxBytes = 0;
+#ifdef CHESSLINK_TRACE_CABLE_RAW
+CableRawTrace cableRawTrace;
+uint32_t rawTraceOffset = 0;
+void drainRawCableTrace() {
+  if (!cableRawTrace.count) return;
+  uint8_t raw[64];
+  const size_t n = cableRawTrace.take(raw, sizeof(raw));
+  char line[240];
+  size_t pos = snprintf(line, sizeof(line),
+    "[CABLE RAW RX] offset=%lu dropped=%lu hex=",
+    static_cast<unsigned long>(rawTraceOffset), static_cast<unsigned long>(cableRawTrace.dropped));
+  for (size_t i = 0; i < n; ++i)
+    pos += snprintf(line + pos, sizeof(line) - pos, "%02X", raw[i]);
+  line[pos++] = '\r'; line[pos++] = '\n';
+  Serial.write(reinterpret_cast<const uint8_t*>(line), pos);
+  rawTraceOffset += n;
+}
+#endif
 
 // Triggered, time-boxed raw-byte capture. Deliberately small and dumped in
 // ONE write, not one Serial.printf() per byte -- the first version of this
@@ -207,6 +228,7 @@ const KnownBoard kKnownBoards[] = {
     // (non-robotic) Chessnut driver first -- see chessnutmove_board.h.
     {kChessnutMoveBoardName, BoardType::ChessnutMove},
     {kChessnutMoveBoardNameAlt, BoardType::ChessnutMove},
+    {"CHESSNUT_MOVE", BoardType::ChessnutMove},
     {kChessnutBoardName, BoardType::Chessnut},
     {kChessnutBoardNameAlt, BoardType::Chessnut},
     {kCynusBoardName, BoardType::Cynus},
@@ -363,6 +385,13 @@ void showBtBtSignal(const uint8_t* squares, size_t count, const char* cynusText)
         highlights[i] = {squares[i], SquareHighlightRole::Generic};
       }
       chessnutSetHighlightedSquares(highlights, count);
+      break;
+    }
+    case BoardType::ChessnutMove: {
+      SquareHighlight highlights[4];
+      const size_t size=std::min(count,size_t(4));
+      for (size_t i=0;i<size;++i) highlights[i]={squares[i],SquareHighlightRole::Generic};
+      chessnutmoveSetHighlightedSquares(highlights,size);
       break;
     }
     case BoardType::Cynus:
@@ -597,6 +626,9 @@ void receiveFromMillenniumComputer() {
   size_t completedFrames = 0;
   while (MillenniumSerial.available() > 0) {
     const uint8_t raw = static_cast<uint8_t>(MillenniumSerial.read());
+#ifdef CHESSLINK_TRACE_CABLE_RAW
+    cableRawTrace.push(raw); // Before masking, validation, routing or discard.
+#endif
     ++rawUartRxBytes;
 #ifdef CHESSLINK_ENABLE_MACHINE
     // Preserve the existing late-cable reboot in standalone mode.
@@ -1040,6 +1072,9 @@ void loop() {
   }
 
   receiveFromMillenniumComputer();
+#ifdef CHESSLINK_TRACE_CABLE_RAW
+  drainRawCableTrace();
+#endif
 
   if (cableFallbackArmed && rawUartRxBytes > 0 &&
       (activeBoardType != BoardType::Certabo ||

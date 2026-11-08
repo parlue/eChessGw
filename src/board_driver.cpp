@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "chessnut_board.h"
+#include "chessnutmove_board.h"
 #include "cynus_board.h"
 #include "ichessone_board.h"
 #include "millennium_board.h"
@@ -156,6 +157,12 @@ void dispatchCableLedFrameToBoard(BoardType type, const uint8_t frame167[167],
 #if !defined(CHESSLINK_ENABLE_CERTABO)
   (void)hostRepeatsLedFrames;  // only the Certabo branch below uses it
 #endif
+  if (type == BoardType::ChessnutMove) {
+    SquareHighlight squares[64];
+    const size_t count=decodeKingLedFrame(frame167,squares,64);
+    chessnutmoveExecuteHighlightedMove(squares,count);
+    return;
+  }
   if (type == BoardType::Millennium) {
     millenniumSuppressNextLedAck();
     // millenniumRequestBoardStatus() used to fire here on every single 'L'
@@ -579,6 +586,7 @@ void clearKingGestureResultConfirmation(BoardType type) {
 #endif
     case BoardType::Millennium: millenniumClearLeds(); break;
     case BoardType::Chessnut: chessnutSetHighlightedSquares(nullptr, 0); break;
+    case BoardType::ChessnutMove: chessnutmoveSetHighlightedSquares(nullptr, 0); break;
     case BoardType::IChessOne: ichessoneClearLeds(); break;
     case BoardType::Cynus: cynusShowText("play"); break;
     default: break;
@@ -592,6 +600,7 @@ void clearBoardLeds(BoardType type) {
 #endif
     case BoardType::Millennium: millenniumClearLeds(); break;
     case BoardType::Chessnut: chessnutSetHighlightedSquares(nullptr, 0); break;
+    case BoardType::ChessnutMove: chessnutmoveSetHighlightedSquares(nullptr, 0); break;
     case BoardType::Cynus: cynusClearLeds(); break;
     case BoardType::IChessOne: ichessoneClearLeds(); break;
     default: break;

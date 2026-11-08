@@ -1,8 +1,8 @@
 #pragma once
 #include <atomic>
 
-// Lifetime selection. Disconnects never reopen the race. The BLE host task
-// and the board-connect task can finish concurrently; only one may win.
+// Disconnects never reopen the race. An explicit new starting position may
+// reopen virtual-only selection. BLE host and board-connect tasks race atomically.
 class MachineSelection {
  public:
   enum class Mode { Undecided, Physical, Machine, MachineBoard, MachineVirtual };
@@ -28,6 +28,10 @@ class MachineSelection {
   bool lockVirtual() {
     Mode expected = Mode::Machine;
     return mode.compare_exchange_strong(expected, Mode::MachineVirtual);
+  }
+  bool reopenAtStart() {
+    Mode expected = Mode::MachineVirtual;
+    return mode.compare_exchange_strong(expected, Mode::Machine);
   }
   bool physical() const { return mode.load() == Mode::Physical; }
  private:

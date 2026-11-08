@@ -2071,6 +2071,25 @@ void cynusPoll() {
 }
 
 #ifdef CHESSLINK_ENABLE_MACHINE
+bool cynusExecuteMachinePromotion(int from, int to, char piece) {
+  if (!machineGatewayActive() || from<0 || from>=64 || to<0 || to>=64 ||
+      !strchr("QRBN",piece) || !piece) return false;
+  const char pawn=board64[from ^ 56];
+  if ((pawn!='P' && pawn!='p') || to/8!=(pawn=='P'?7:0) ||
+      !plausibleBoardMove(board64,from ^ 56,to ^ 56,EngineSide::Unknown)) return false;
+  const std::string uci=std::string(1,char('a'+from%8))+char('1'+from/8)+
+      char('a'+to%8)+char('1'+to/8)+char(tolower(static_cast<unsigned char>(piece)));
+  if (uci==lastSentMoveUci && moveCycle==MoveCycle::WaitRobotPosition) return true;
+  if (!engineMayMoveNow()) return false;
+  // Failed/ambiguous transport must not be retried as a mechanical command.
+  if (!sendCynus("move "+uci+"\n")) return false;
+  lastSentMoveUci=uci;
+  setMoveCycle(MoveCycle::WaitRobotPosition);
+  sideToMoveNow=sideToMoveNow==EngineSide::Black?EngineSide::White:EngineSide::Black;
+  cynusDisplay(moveDisplayText(uci));
+  Serial.printf("[CYNUS MACHINE] confirmed promotion sent: %s\r\n",uci.c_str());
+  return true;
+}
 void cynusCancelPendingMachineMove() {
   clearPendingLedMove("machine New Game");
   clearAlternatingPair("machine New Game");

@@ -1,15 +1,9 @@
 #include "chessnutmove_board.h"
+#include "chessnutmove_control.h"
 #include "gw_serial.h"  // keep last: Serial -> log-recording wrapper
 
-// Confirmed via the community chessnut-move-rs port (daymxn/chessnut-move-rs,
-// DEVICE_NAME constant) since Chessnut's own official EasyLinkSDK doesn't
-// cover the Move board at all (only Air/Pro/Evo/Go, the passive sensor
-// family) -- user's own question 2026-10-06, "wird das grossgeschrieben?":
-// yes, advertised as "CHESSNUT-MOVE". Still matched case-insensitively (see
-// containsCaseInsensitive() in main.cpp), and must be registered BEFORE the
-// generic kChessnutBoardName substring match in main.cpp's kKnownBoards[],
-// since "chessnut-move" also contains "chessnut" and would otherwise be
-// caught by the plain (non-robotic) Chessnut driver instead.
+// Move names are matched before generic Chessnut. The sensor/LED/motor
+// protocol follows the hardware-tested eChessTactics implementation.
 const char kChessnutMoveBoardName[] = "CHESSNUT-MOVE";
 const char kChessnutMoveBoardNameAlt[] = "chessnut move";  // space variant, defensive
 
@@ -24,6 +18,13 @@ constexpr char kWriteUuid[] = "1b7e8272-2877-41c3-b46e-cf057c562023";
 constexpr char kReadMiscUuid[] = "1b7e8273-2877-41c3-b46e-cf057c562023";
 constexpr char kReadBoardUuid[] = "1b7e8262-2877-41c3-b46e-cf057c562023";
 constexpr size_t kMaxNotifyPayload = 48;
+ChessnutMoveControl motion;
+uint32_t fieldAt[64] = {}, hintsChangedAt = 0;
+uint64_t hintFields = 0;
+uint8_t lastLedCommand[34] = {};
+bool haveLedCommand = false;
+void clearHints() { hintFields=0; memset(fieldAt,0,sizeof(fieldAt)); }
+
 constexpr uint32_t kConnectTimeoutMs = 8000;
 
 struct RawPacket {
@@ -167,6 +168,7 @@ class ClientCallbacks final : public NimBLEClientCallbacks {
     miscChar = nullptr;
     boardChar = nullptr;
     haveLastRawBoardData = false;
+    motion.reset(); clearHints(); haveLedCommand=false;
     Serial.println("BLE disconnected; reconnecting automatically.");
   }
 };
@@ -181,6 +183,7 @@ NimBLERemoteCharacteristic* findCharacteristicInAnyService(NimBLEClient* client,
 
 void handleBoardDataPacket(const uint8_t* data, size_t length) {
   if (length < 34 || data[0] != 0x01 || data[1] != 0x24) return;
+  for (int i=2;i<34;++i) if ((data[i]&15)>12 || (data[i]>>4)>12) return;
   const uint8_t* raw = data + 2;  // 32 bytes, 2 squares per byte
   if (haveLastRawBoardData && memcmp(lastRawBoardData, raw, 32) == 0) return;
   memcpy(lastRawBoardData, raw, 32);
@@ -207,6 +210,16 @@ void handleBoardDataPacket(const uint8_t* data, size_t length) {
     Serial.println("[CHESSNUT LED] selection queen removed; cleared local baseline square");
   }
 
+  char canonical[64];
+  for (int sq=0;sq<64;++sq) canonical[sq]=currentBoard[modeBStatusWireIndex(sq%8,sq/8+1)];
+  const bool wasMoving=motion.phase==ChessnutMoveControl::Moving;
+  const bool gameChanged=motion.haveGame && memcmp(canonical,motion.position.board,64);
+  if (!motion.sensor(canonical)) return; // never publish partial robot motion
+  if (wasMoving || (gameChanged && !memcmp(canonical,motion.position.board,64))) {
+    clearHints(); haveLedCommand=false;
+    memcpy(settledBoard,currentBoard,64); haveSettledBoard=true;
+    if (wasMoving) Serial.println("[MOVE] full physical target confirmed");
+  }
   sendCableStatusFrame();
   armVerboseCableLog();
 
@@ -301,9 +314,10 @@ bool chessnutmoveConnect(const NimBLEAddress& address) {
     miscChar->subscribe(true, onMiscNotify);
   }
 
-  Serial.println("Chessnut BLE gateway connected.");
+  Serial.printf("[MOVE] connected, MTU=%u; motors require MTU >=38\r\n",bleClient->getMTU());
   resetKingLedFrameBaseline();
   haveLastRawBoardData = false;
+  motion.reset(); clearHints(); haveLedCommand=false;
   haveSettledBoard = false;
   selectionQueenWireIndex = -1;
   ledSettlePending = false;
@@ -331,26 +345,60 @@ void chessnutmoveTrackSelectionQueen(int mode) {
 }
 
 void chessnutmoveSetHighlightedSquares(const SquareHighlight* squares, size_t count) {
-  if (!chessnutmoveIsConnected()) return;
-  uint8_t command[10] = {0x0a, 0x08, 0, 0, 0, 0, 0, 0, 0, 0};
-  for (size_t i = 0; i < count; ++i) {
-    const int file0 = squares[i].squareIndex % 8;  // 0-based a..h
-    const int rank = squares[i].squareIndex / 8 + 1;
-    const uint8_t fileBit = static_cast<uint8_t>(0x80 >> file0);  // a=0x80 .. h=0x01
-    command[2 + (8 - rank)] |= fileBit;
+  if (!chessnutmoveIsConnected() || motion.phase!=ChessnutMoveControl::Idle || bleClient->getMTU()<37) return;
+  uint64_t fields=0;
+  for (size_t i=0;i<count;++i) if (squares[i].squareIndex<64) fields |= uint64_t(1)<<squares[i].squareIndex;
+  uint8_t command[34]; chessnutMoveEncodeLeds(fields,command);
+  if (haveLedCommand && !memcmp(command,lastLedCommand,34)) return;
+  if (!writeChar->writeValue(command,34,true)) {
+    motion.writeFailed(); Serial.println("[MOVE] LED write failed; reconnect before further commands");
+    return;
   }
-  // Write-with-response. A write-without-response variant was tried
-  // 2026-08-31 (theory: the blocking round-trip here starves the cable's
-  // incoming UART read of CPU time, risking corrupted bytes from Phoenix)
-  // but the very next real-hardware test hung the whole device on boot --
-  // no serial output at all, persisting through a full USB unplug/replug,
-  // unrelated to the earlier 2026-08-30 attempt's own regression. Reverted
-  // immediately without a confirmed root cause; do not retry without
-  // isolating why it hung first.
-  if (!writeChar->writeValue(command, sizeof(command), true)) {
-    Serial.println("[CHESSNUT LED] BLE write failed");
-  }
+  memcpy(lastLedCommand,command,34); haveLedCommand=true;
 }
+
+bool chessnutmoveSetTargetPosition(const char board[64]) {
+  if (!chessnutmoveIsConnected() || bleClient->getMTU()<38) return false;
+  // Repeated host suggestions while the same target is moving are idempotent.
+  if (motion.phase==ChessnutMoveControl::Moving) return !memcmp(board,motion.target,64);
+  uint8_t command[35];
+  if (!chessnutMoveEncodeTarget(board,command) || motion.phase!=ChessnutMoveControl::Idle) return false;
+  if (motion.haveSensor && !memcmp(board,motion.actual,64)) {
+    sendCableStatusFrame(); // Already there: acknowledge the real position without moving.
+    return true;
+  }
+  if (!motion.begin(board,millis())) return false;
+  clearHints();
+  uint64_t differences=0;
+  for (int sq=0;sq<64;++sq) if (board[sq]!=motion.actual[sq]) differences |= uint64_t(1)<<sq;
+  uint8_t leds[34]; chessnutMoveEncodeLeds(differences,leds);
+  // NimBLE's response writes are synchronous: finish LEDs before motor command.
+  if (!writeChar->writeValue(leds,34,true)) {
+    motion.writeFailed(); Serial.println("[MOVE] target LED write failed; reconnect required"); return false;
+  }
+  delay(10);
+  if (!chessnutmoveIsConnected() || motion.phase!=ChessnutMoveControl::Moving) return false;
+  if (!writeChar->writeValue(command,35,true)) {
+    motion.writeFailed(); Serial.println("[MOVE] motor write failed; reconnect required, no automatic retry"); return false;
+  }
+  haveLedCommand=false;
+  Serial.println("[MOVE] complete target sent; waiting for physical confirmation");
+  return true;
+}
+
+void chessnutmoveExecuteHighlightedMove(const SquareHighlight* squares, size_t count) {
+  chessnutmoveSetHighlightedSquares(squares,count);
+  if (motion.phase!=ChessnutMoveControl::Idle) return;
+  uint64_t fields=0;
+  for (size_t i=0;i<count;++i) if (squares[i].squareIndex<64) fields |= uint64_t(1)<<squares[i].squareIndex;
+  // Empty blink frames do not invent a motor command. Keep endpoints briefly
+  // for hosts that blink source and destination separately.
+  const uint32_t now=millis();
+  if (fields & ~hintFields) hintsChangedAt=now;
+  hintFields |= fields;
+  for (int sq=0;sq<64;++sq) if (fields & (uint64_t(1)<<sq)) fieldAt[sq]=now;
+}
+bool chessnutmoveIsBusyMoving() { return motion.phase!=ChessnutMoveControl::Idle; }
 
 void chessnutmovePoll() {
   if (!chessnutmoveIsConnected()) return;
@@ -362,6 +410,17 @@ void chessnutmovePoll() {
   while (xQueueReceive(miscDataQueue, &packet, 0) == pdTRUE) {
     handleMiscPacket(packet.data, packet.length);
   }
+
+  if (motion.timeout(millis()))
+    Serial.println("[MOVE] target not reached in 120s; motor commands locked until reconnect");
+  if (motion.phase!=ChessnutMoveControl::Idle) return;
+  for (int sq=0;sq<64;++sq) if ((hintFields & (uint64_t(1)<<sq)) && uint32_t(millis()-fieldAt[sq])>1500)
+    hintFields &= ~(uint64_t(1)<<sq);
+  if (hintFields && uint32_t(millis()-hintsChangedAt)>=200) {
+    char target[64];
+    if (motion.hintTarget(hintFields,target)) chessnutmoveSetTargetPosition(target);
+  }
+  if (motion.phase!=ChessnutMoveControl::Idle) return;
 
   // Retry only until this connection delivers its first position. A board
   // that missed initialization must not require moving a piece to recover.
@@ -414,145 +473,3 @@ void chessnutmovePoll() {
   }
 }
 
-// --- Robotic move execution -------------------------------------------
-// Wire format verified against daymxn/chessnut-move-rs (2026-10-06); see
-// the long comment on chessnutmoveExecuteHighlightedMove() in the header.
-//
-// Tracked independently of currentBoard[]/settledBoard[] above (those are
-// Chessnut Air's own raw sensor-scan state, in that hardware's own wire
-// order -- NOT confirmed to be canonical a1..h8, so reusing them here would
-// risk silently sending a move to/from the wrong square). moveBoard[] is
-// this driver's own canonical a1=0..h8=63 position, maintained purely by
-// replaying the highlighted-move stream from a standard start position --
-// same approach cynus_board.cpp's own board64[] takes.
-namespace {
-char moveBoard[64] = {
-    'R','N','B','Q','K','B','N','R',  // a1..h1
-    'P','P','P','P','P','P','P','P',  // a2..h2
-    '.','.','.','.','.','.','.','.',
-    '.','.','.','.','.','.','.','.',
-    '.','.','.','.','.','.','.','.',
-    '.','.','.','.','.','.','.','.',
-    'p','p','p','p','p','p','p','p',  // a7..h7
-    'r','n','b','q','k','b','n','r',  // a8..h8
-};
-constexpr uint32_t kAutoMoveBusyTimeoutMs = 4000;  // "under 3s" per vendor spec + margin
-uint32_t lastMoveSentMs = 0;
-bool moveBusy = false;
-
-uint8_t pieceNibble(char piece) {
-  switch (piece) {
-    case 'q': return 0x1; case 'k': return 0x2; case 'b': return 0x3;
-    case 'p': return 0x4; case 'n': return 0x5; case 'r': return 0x8;
-    case 'R': return 0x6; case 'P': return 0x7; case 'B': return 0x9;
-    case 'N': return 0xa; case 'Q': return 0xb; case 'K': return 0xc;
-    default: return 0x0;  // '.' or anything unrecognized -> empty
-  }
-}
-
-// 35-byte auto_move command: [0x42,0x21] prefix + 32-byte packed position
-// (wire slot = 63 - canonicalIndex, two 4-bit squares per byte, low nibble
-// first) + 1 mode byte.
-void encodeAutoMoveCommand(const char board[64], uint8_t out[35]) {
-  out[0] = 0x42;
-  out[1] = 0x21;
-  for (int wireSlot = 0; wireSlot < 64; wireSlot += 2) {
-    const uint8_t lowNibble = pieceNibble(board[63 - wireSlot]);
-    const uint8_t highNibble = pieceNibble(board[63 - (wireSlot + 1)]);
-    out[2 + wireSlot / 2] = lowNibble | (highNibble << 4);
-  }
-  out[34] = 0x01;  // AutoMoveMode::Normal
-}
-
-bool sendAutoMoveCommand(const char board[64]) {
-  if (writeChar == nullptr) return false;
-  uint8_t command[35];
-  encodeAutoMoveCommand(board, command);
-  if (!writeChar->writeValue(command, sizeof(command), true)) {
-    Serial.println("[CHESSNUT-MOVE] auto_move BLE write failed");
-    return false;
-  }
-  lastMoveSentMs = millis();
-  moveBusy = true;
-  return true;
-}
-
-}  // namespace
-
-void chessnutmoveExecuteHighlightedMove(const SquareHighlight* highlights, size_t count) {
-  if (chessnutmoveIsBusyMoving()) {
-    Serial.println("[CHESSNUT-MOVE] highlighted-move command ignored; still busy with previous move");
-    return;
-  }
-  if (count == 4) {
-    // Castling, same detection as cynus_board.cpp's cynusExecuteHighlightedMove():
-    // all 4 squares (king source/dest + rook source/dest) arrive together;
-    // find the king, then the empty destination two files away on its rank.
-    int kingSquare = -1;
-    for (size_t i = 0; i < 4; ++i) {
-      const char piece = moveBoard[highlights[i].squareIndex];
-      if (piece == 'K' || piece == 'k') {
-        if (kingSquare != -1) { kingSquare = -1; break; }
-        kingSquare = highlights[i].squareIndex;
-      }
-    }
-    if (kingSquare == -1) {
-      Serial.println("[CHESSNUT-MOVE] 4-square highlight doesn't look like castling -- ignored");
-      return;
-    }
-    const int kingRank = kingSquare / 8, kingFile = kingSquare % 8;
-    int destSquare = -1;
-    for (size_t i = 0; i < 4; ++i) {
-      const int sq = highlights[i].squareIndex;
-      if (sq == kingSquare || moveBoard[sq] != '.') continue;
-      const int rank = sq / 8, file = sq % 8;
-      if (rank == kingRank && abs(file - kingFile) == 2) { destSquare = sq; break; }
-    }
-    if (destSquare == -1) {
-      Serial.println("[CHESSNUT-MOVE] 4-square highlight doesn't look like castling -- ignored");
-      return;
-    }
-    const bool kingside = destSquare > kingSquare;
-    const int rookFrom = kingRank * 8 + (kingside ? 7 : 0);
-    const int rookTo = kingside ? destSquare - 1 : destSquare + 1;
-    moveBoard[destSquare] = moveBoard[kingSquare]; moveBoard[kingSquare] = '.';
-    moveBoard[rookTo] = moveBoard[rookFrom]; moveBoard[rookFrom] = '.';
-    Serial.println("[CHESSNUT-MOVE] highlighted-move decoded as castling -- sending auto_move");
-    sendAutoMoveCommand(moveBoard);
-    return;
-  }
-  if (count != 2) {
-    Serial.printf("[CHESSNUT-MOVE] highlighted-move command has %u squares, expected 2 or 4 -- ignored\r\n",
-                  static_cast<unsigned>(count));
-    return;
-  }
-  // Plain move (2 squares): the occupied one is the source, the other the
-  // destination. En passant/promotion piece choice aren't distinguishable
-  // from just two highlighted squares -- promotion always resolves to a
-  // queen here, same simplification as elsewhere in this project.
-  int fromSquare = -1, toSquare = -1;
-  if (moveBoard[highlights[0].squareIndex] != '.') { fromSquare = highlights[0].squareIndex; toSquare = highlights[1].squareIndex; }
-  else if (moveBoard[highlights[1].squareIndex] != '.') { fromSquare = highlights[1].squareIndex; toSquare = highlights[0].squareIndex; }
-  if (fromSquare == -1) {
-    Serial.println("[CHESSNUT-MOVE] neither highlighted square is occupied -- ignored");
-    return;
-  }
-  char movingPiece = moveBoard[fromSquare];
-  const bool isPawn = (movingPiece == 'P' || movingPiece == 'p');
-  const int toRank = toSquare / 8;
-  if (isPawn && (toRank == 0 || toRank == 7)) movingPiece = (movingPiece == 'P') ? 'Q' : 'q';
-  // En passant: pawn moves diagonally into an empty square -> the captured
-  // pawn is on the FROM rank, TO file.
-  if (isPawn && moveBoard[toSquare] == '.' && (fromSquare % 8) != (toSquare % 8)) {
-    moveBoard[(fromSquare / 8) * 8 + (toSquare % 8)] = '.';
-  }
-  moveBoard[toSquare] = movingPiece;
-  moveBoard[fromSquare] = '.';
-  Serial.println("[CHESSNUT-MOVE] highlighted-move decoded -- sending auto_move");
-  sendAutoMoveCommand(moveBoard);
-}
-
-bool chessnutmoveIsBusyMoving() {
-  if (moveBusy && uint32_t(millis() - lastMoveSentMs) >= kAutoMoveBusyTimeoutMs) moveBusy = false;
-  return moveBusy;
-}

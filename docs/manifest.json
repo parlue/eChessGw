@@ -1,6 +1,6 @@
 {
-  "name": "eChessGw",
-  "version": "v12",
+  "name": "eChessGw V13 Move",
+  "version": "v13_move",
   "new_install_prompt_erase": true,
   "builds": [
     {
