@@ -1,4 +1,6 @@
+#ifndef TEST_DEFAULT_VIRTUAL_PROMOTION
 #define CHESSLINK_VIRTUAL_OPERATOR_V2 1
+#endif
 #define main legacy_main
 #include "machine_gateway_test.cpp"
 #undef main
@@ -61,8 +63,9 @@ void knownMove(bool software, const char* from, const char* to, unsigned stages 
 void sparsePromotion(bool white, bool software, bool capture, char figure) {
   memset(virtualGame.board, '.', 64);
   virtualGame.board[sq("e1")] = 'K'; virtualGame.board[sq("e8")] = 'k';
-  const char* from = white ? "b7" : "b2";
-  const char* to = white ? (capture ? "c8" : "b8") : (capture ? "c1" : "b1");
+  // Include the live Phoenix regression a7-a8=Q at the board edge.
+  const char* from = white ? "a7" : "b2";
+  const char* to = white ? (capture ? "b8" : "a8") : (capture ? "c1" : "b1");
   virtualGame.board[sq(from)] = white ? 'P' : 'p';
   if (capture) virtualGame.board[sq(to)] = white ? 'r' : 'R';
   virtualGame.whiteToMove = white;
