@@ -1,6 +1,8 @@
 # eChessGw
 
-**Current release: V13 Move — 8 November 2026.** [Install](https://parlue.github.io/eChessGw/) · [Release](https://github.com/parlue/eChessGw/releases/tag/v13_move) · [Notes and test status](docs/releases/v13_move/README.md). V12 remains available as a fallback.
+**Current saved stable release: V14_stable - 19 November 2026.** [Install](https://parlue.github.io/eChessGw/) · [Notes](docs/releases/V14_stable/README.md).
+
+**eChessGW_XMasGift:** separate test version with built-in Virgin Adaptive, F4 queen gestures and a one-second human-perspective evaluation display. [Christmas installer](https://parlue.github.io/eChessGw/#xmasgift) · [Instructions and test limits](docs/beta/eChessGW_XMasGift/README.md). V13 Move and V12 remain selectable fallbacks.
 
 eChessGw is an independent source-available BLE gateway for chess
 computer modules that speak the ChessLink (Mode B) protocol over a cable. It

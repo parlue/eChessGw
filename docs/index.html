@@ -73,15 +73,39 @@
   </ul>
 
   <div class="installer">
-    <h2>Release — V13 Move</h2>
-    <p>Chessnut Move and physical engine duels. ESP32-C3 SuperMini. Includes castling, en-passant and promotion-handling updates.</p>
+    <h2>Stable release &mdash; V14_stable</h2>
+    <p>Saved current SuperMini gateway, including virtual-board promotion negotiation. The optional Christmas version is available separately below.</p>
     <esp-web-install-button manifest="manifest.json">
     </esp-web-install-button>
   </div>
 
-  <p><a href="releases/v13_move/README.md">V13 Move release notes and test status</a> &middot;
-    <a href="releases/v13_move/SHA256.json">Checksums</a> &middot;
-    <a href="https://github.com/parlue/eChessGw/tree/v13_move/src/v13_move">Frozen source</a></p>
+  <p><a href="releases/V14_stable/README.md">V14_stable notes and test status</a> &middot;
+    <a href="releases/V14_stable/SHA256.json">Checksums</a> &middot;
+    <a href="https://github.com/parlue/eChessGw/tree/main/src/v14_stable">Frozen source</a></p>
+  <details class="installer" id="xmasgift">
+    <summary>eChessGW_XMasGift &mdash; Virgin 0.8.7 Adaptive (beta)</summary>
+    <p>Play directly against Virgin on your board, without a cable computer or app.
+      Complete board connection and piece learning first; F4 starts Virgin directly.
+      Then use the starting position plus an extra queen on <strong>F4</strong>:
+      white queen = you play White; black queen = you play Black.</p>
+    <p>The centre flashes twice, then the corners twice. Remove the extra queen.
+      Returning to the starting position later ends the game; use F4 again to restart.
+      The one-second evaluation display always shows your advantage or disadvantage.</p>
+    <p>Includes an embedded opening book and the improved 0.8.7 adaptive selection.
+      Game over: White wins = E4/D5, Black wins = D4/E5, draw = all four centre squares.
+      Result LEDs stay on until the full starting position is restored.</p>
+    <p>Complete Certabo/Spectrum learning first. The previous engine was tested with
+      Chessnut and virtual Certabo; 0.8.7 board gameplay still needs confirmation.</p>
+    <esp-web-install-button manifest="beta/eChessGW_XMasGift/manifest.json"></esp-web-install-button>
+    <p><a href="beta/eChessGW_XMasGift/README.md">Instructions and test status</a> &middot;
+      <a href="beta/eChessGW_XMasGift/SHA256.json">Checksums</a></p>
+  </details>
+
+  <details class="installer" id="v13-fallback">
+    <summary>Previous release: V13 Move</summary>
+    <esp-web-install-button manifest="releases/v13_move/manifest.json"></esp-web-install-button>
+  </details>
+
   <details class="installer" id="virtual-promotion-beta">
     <summary>BETA: virtual-board promotion (14 November 2026)</summary>
     <p>For engine versus engine without a physical board. Tests the Phoenix

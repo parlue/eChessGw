@@ -1,0 +1,37 @@
+{
+  "version": "0.8.7",
+  "source": "C:\\Users\\DirkSommerfeld\\Documents\\Projects\\virgin\\src",
+  "upstream_sha256": {
+    "adaptive.cpp": "bbfa5c950813a76a9ce3bb1e9b249052084ba59b313db985e31af82b78cd67aa",
+    "adaptive.h": "b90dbedc851f45c49a5e065125e917067afe152842291ac7084d13faa03ec57e",
+    "adaptive_params.h": "b826056430f155890b72287ce053af4d4ff075538ea724fcebc436d2fcd615c2",
+    "bitboard.h": "c675dc30585b7de2b8945ca8da9e86266a29ecd8277545a905711355ac071285",
+    "bitboard_compact.cpp": "e81baca9118efe93f3a7666d8b24869734c3f268190521fcd60eb431c009d1bb",
+    "botdata.cpp": "8131eb746f4545f5113183974637de6167e180cf3d786ab16112a446cfd796f6",
+    "botdata.h": "17aebbab78327cc03b789b37221257a0886b1e3371bed587a31a5ec235f7f140",
+    "embedded_config.h": "6d4fab5942cb03d6635dccce424dcaed0873529d03a6d3ca3310ec0ef5a9d146",
+    "eval.cpp": "ecb389d252172b23ccae7bc91704ccbe541e4b73396f2fd76557c38399c81b6d",
+    "eval.h": "dd1738f5aa1e71b61882e1f7e17b404dede695553a09436d90ba2de1c05c666f",
+    "movegen.cpp": "270f309e9840d136a5ed797ac1ec8a9a7378c3096ded49e0c60f5c3bfb96b871",
+    "movegen.h": "3fff904dca650838ee370138a9c7d386cd38b8050348a926cdaf94689a0a5519",
+    "position.cpp": "05b0175cddf7d691d35d0d4b0bfeb9312b4fb50d96d7e260fcb8d587951d01bc",
+    "position.h": "ec2c0bce299bcb0d7c9405b666da242103ec8b337e4079ac1f95c5404f0b61cf",
+    "pst_pesto.h": "1c188d2827ce23fc2461d5d7011853cb85f0eeadb8b85f63b14c22a77946fc13",
+    "search.cpp": "1d3b9833107a7124afbd46e72c5ff7d88743c633d8da91e99a5075d7a0b3e428",
+    "search.h": "c22b831e662837357b9e1449c7a3cdcf8ac9c98086772fc8f1ba2c19c032d941",
+    "types.cpp": "66621c1a2e4f8ea2e74625df9a658af5253a0e83387e284099468f76380cf0d8",
+    "types.h": "fcf179f322a0888b0ccd74dc662151f527e8f14618fa7db93fe0282ec73e5b06",
+    "uci_output.h": "3c39dfcda8e4229fdb6c904a5bc6848bec427bad451c4ddc8b4c864e2f16ff77",
+    "weights.cpp": "4785cc6b6a45bb3ce86d2a346b9149d849463cd5261f7d23e793fcde0dcfa840",
+    "weights.h": "d78f3f44760d1477799eab16921ec86669081237d27f4c22dd5bb17f564b33a1",
+    "opening_book.h": "b9989adecda6f2d4b9283a59abf069e433be297e73f02c2d0994834c8ab2d271",
+    "opening_book_data.h": "a803b7113083023880e82a38839ce28fd59beeb2254a9d4cd763abcbbf8cb481",
+    "time_policy.h": "e5dcba0d95e47751f37fe0b27fb734ee8c31c757a015557e971c68ba76e5395e",
+    "version.h": "0d465c622576318bd4c62f57c85988e140965d687ae54c220a021d39c831eee9"
+  },
+  "local_adaptations": [
+    "search.cpp: per-search allocation, bounded countermoves, byte LMR, reused quiet list",
+    "search.h: session allocation API",
+    "tt.cpp/tt.h: retained 8 KiB nonthrowing C3 table"
+  ]
+}

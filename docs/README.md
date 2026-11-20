@@ -1,15 +1,14 @@
 # eChessGw Web Flasher
 
-The normal installer uses `manifest.json`: **V13 Move**, ESP32-C3 SuperMini.
-Release files, provenance and checksums: `releases/v13_move/`.
-It distributes the exact image flashed in the live test session; rebuilding is verification only.
-Read the release notes for test coverage and hardware limitations.
+The normal installer is the saved **V14_stable** SuperMini firmware.
+The separate **eChessGW_XMasGift** installer includes Virgin Adaptive.
+V13 Move, V12 and previous betas remain available with unchanged bytes.
 
-V12 remains selectable as a fallback with `releases/v12/manifest.json`.
-Old releases and beta packages retain their original bytes.
-
-Certabo: normal position + white extra queen d3 / black d6.
-Spectrum: normal position + white extra queen e3 / black e6.
-Wait for all 34 chips and three centre flashes; remove the extra queens.
+- V14_stable package: releases/V14_stable/.
+- Christmas package: beta/eChessGW_XMasGift/.
+- Certabo: starting position plus extra queens d3/d6; Spectrum: e3/e6.
+- After learning and removing both queens, use an extra queen on F4 to start
+  Virgin: white queen = human White, black queen = human Black.
+- Read each package's instructions and hardware-test status before installing.
 
 GitHub Pages: main branch, /docs. https://parlue.github.io/eChessGw/
